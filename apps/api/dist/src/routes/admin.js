@@ -9,7 +9,10 @@ const emailService_1 = require("../services/emailService");
 const stripe_1 = __importDefault(require("stripe"));
 const emailValidator_1 = require("../utils/emailValidator");
 const router = express_1.default.Router();
-const stripe = new stripe_1.default(process.env.STRIPE_SECRET_KEY, { apiVersion: '2023-10-16' });
+if (!process.env.STRIPE_SECRET_KEY) {
+    console.error('ERROR: STRIPE_SECRET_KEY is not set in environment variables!');
+}
+const stripe = new stripe_1.default(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder', { apiVersion: '2023-10-16' });
 const ADMIN_USERS = [
     {
         id: 'admin-1',
@@ -114,8 +117,25 @@ router.post('/auth/verify-code', async (req, res) => {
         res.status(500).json({ message: 'Login failed' });
     }
 });
+router.get('/debug/config', authenticateAdmin, async (req, res) => {
+    try {
+        res.json({
+            stripeKeySet: !!process.env.STRIPE_SECRET_KEY,
+            stripeKeyPrefix: process.env.STRIPE_SECRET_KEY?.substring(0, 7) || 'NOT_SET',
+            jwtSecretSet: !!process.env.JWT_SECRET,
+            emailConfigured: !!process.env.SMTP_USER,
+            nodeEnv: process.env.NODE_ENV
+        });
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to get config' });
+    }
+});
 router.get('/customers', authenticateAdmin, async (req, res) => {
     try {
+        if (!process.env.STRIPE_SECRET_KEY) {
+            return res.status(500).json({ message: 'Stripe API key not configured' });
+        }
         const customers = await stripe.customers.list({ limit: 100 });
         const customersWithSubscriptions = await Promise.all(customers.data.map(async (customer) => {
             const subscriptions = await stripe.subscriptions.list({

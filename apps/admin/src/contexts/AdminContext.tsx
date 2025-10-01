@@ -132,7 +132,7 @@ export const AdminProvider: React.FC<AdminProviderProps> = ({ children }) => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const API_BASE_URL = 'http://localhost:3001'
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
   const apiCall = async (endpoint: string, options: RequestInit = {}) => {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {

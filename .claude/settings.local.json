@@ -11,7 +11,8 @@
       "Bash(curl -s https://laurx-api.onrender.com/auth/send-code -X POST -H \"Content-Type: application/json\" -d '{\"\"email\"\":\"\"test@example.com\"\"}')",
       "Bash(curl:*)",
       "Bash(npm run build:*)",
-      "Bash(npm run dev:*)"
+      "Bash(npm run dev:*)",
+      "Bash(firebase deploy:*)"
     ],
     "deny": [],
     "ask": []
