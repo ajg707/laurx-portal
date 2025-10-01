@@ -174,41 +174,66 @@ router.get('/customers', authenticateAdmin, async (req, res) => {
       return res.status(500).json({ message: 'Stripe API key not configured' })
     }
 
-    const customers = await stripe.customers.list({ limit: 100 })
-    const customersWithSubscriptions = await Promise.all(
-      customers.data.map(async (customer) => {
-        const subscriptions = await stripe.subscriptions.list({
-          customer: customer.id,
-          limit: 10
-        })
+    // Fetch all data in parallel (much faster than per-customer)
+    const [customersResponse, subscriptionsResponse, invoicesResponse] = await Promise.all([
+      stripe.customers.list({ limit: 100 }),
+      stripe.subscriptions.list({ limit: 100 }),
+      stripe.invoices.list({ limit: 100 })
+    ])
 
-        const invoices = await stripe.invoices.list({
-          customer: customer.id,
-          limit: 5
-        })
+    // Group subscriptions and invoices by customer
+    const subscriptionsByCustomer = new Map<string, typeof subscriptionsResponse.data>()
+    subscriptionsResponse.data.forEach(sub => {
+      const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer?.id
+      if (customerId) {
+        const existing = subscriptionsByCustomer.get(customerId) || []
+        existing.push(sub)
+        subscriptionsByCustomer.set(customerId, existing)
+      }
+    })
 
-        const totalSpent = invoices.data.reduce((sum, invoice) => sum + (invoice.amount_paid || 0), 0) / 100
+    const invoicesByCustomer = new Map<string, typeof invoicesResponse.data>()
+    invoicesResponse.data.forEach(inv => {
+      const customerId = typeof inv.customer === 'string' ? inv.customer : inv.customer?.id
+      if (customerId) {
+        const existing = invoicesByCustomer.get(customerId) || []
+        existing.push(inv)
+        invoicesByCustomer.set(customerId, existing)
+      }
+    })
 
-        return {
-          id: customer.id,
-          email: customer.email,
-          name: customer.name || customer.email,
-          subscriptions: subscriptions.data.map(sub => ({
-            id: sub.id,
-            status: sub.status,
-            currentPeriodEnd: new Date(sub.current_period_end * 1000).toISOString(),
-            product: sub.items.data[0]?.price?.nickname || 'Unknown',
-            price: (sub.items.data[0]?.price?.unit_amount || 0) / 100,
-            interval: sub.items.data[0]?.price?.recurring?.interval || 'month'
-          })),
-          totalSpent,
-          createdAt: new Date(customer.created * 1000).toISOString(),
-          lastOrderDate: invoices.data[0] ? new Date(invoices.data[0].created * 1000).toISOString() : undefined,
-          status: subscriptions.data.some(sub => sub.status === 'active') ? 'active' : 
-                  subscriptions.data.length > 0 ? 'inactive' : 'churned'
-        }
-      })
-    )
+    // Build customer objects
+    const customersWithSubscriptions = customersResponse.data.map(customer => {
+      const customerSubs = subscriptionsByCustomer.get(customer.id) || []
+      const customerInvoices = invoicesByCustomer.get(customer.id) || []
+
+      const totalSpent = customerInvoices
+        .filter(inv => inv.status === 'paid')
+        .reduce((sum, invoice) => sum + (invoice.amount_paid || 0), 0) / 100
+
+      const hasActiveSubscription = customerSubs.some(sub =>
+        ['active', 'trialing', 'past_due'].includes(sub.status)
+      )
+
+      return {
+        id: customer.id,
+        email: customer.email,
+        name: customer.name || customer.email,
+        subscriptions: customerSubs.map(sub => ({
+          id: sub.id,
+          status: sub.status,
+          currentPeriodEnd: new Date(sub.current_period_end * 1000).toISOString(),
+          product: sub.items.data[0]?.price?.nickname || 'Unknown',
+          price: (sub.items.data[0]?.price?.unit_amount || 0) / 100,
+          interval: sub.items.data[0]?.price?.recurring?.interval || 'month'
+        })),
+        totalSpent,
+        createdAt: new Date(customer.created * 1000).toISOString(),
+        lastOrderDate: customerInvoices[0] ? new Date(customerInvoices[0].created * 1000).toISOString() : undefined,
+        status: hasActiveSubscription ? 'active' :
+                customerSubs.length > 0 ? 'inactive' : 'churned'
+      }
+    })
 
     res.json({ customers: customersWithSubscriptions })
   } catch (error) {
