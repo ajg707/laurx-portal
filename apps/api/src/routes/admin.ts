@@ -155,11 +155,14 @@ router.post('/auth/verify-code', async (req, res) => {
 // Debug endpoint to check configuration
 router.get('/debug/config', authenticateAdmin, async (req, res) => {
   try {
+    const { isFirebaseInitialized } = await import('../services/firestore')
     res.json({
       stripeKeySet: !!process.env.STRIPE_SECRET_KEY,
       stripeKeyPrefix: process.env.STRIPE_SECRET_KEY?.substring(0, 7) || 'NOT_SET',
       jwtSecretSet: !!process.env.JWT_SECRET,
       emailConfigured: !!process.env.SMTP_USER,
+      firebaseCredentialsSet: !!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON,
+      firebaseInitialized: isFirebaseInitialized,
       nodeEnv: process.env.NODE_ENV
     })
   } catch (error) {
