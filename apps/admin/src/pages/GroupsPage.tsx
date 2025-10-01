@@ -47,7 +47,7 @@ const GroupsPage = () => {
       setLoading(true)
       const response = await fetch(`${API_BASE_URL}/api/admin/groups`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+          'Authorization': `Bearer ${localStorage.getItem('admin_token')}`
         }
       })
 
@@ -73,7 +73,7 @@ const GroupsPage = () => {
       const response = await fetch(`${API_BASE_URL}/api/admin/groups`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
+          'Authorization': `Bearer ${localStorage.getItem('admin_token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -109,7 +109,7 @@ const GroupsPage = () => {
       const response = await fetch(`${API_BASE_URL}/api/admin/groups/${groupId}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+          'Authorization': `Bearer ${localStorage.getItem('admin_token')}`
         }
       })
 
