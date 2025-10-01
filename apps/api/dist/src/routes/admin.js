@@ -131,6 +131,67 @@ router.get('/debug/config', authenticateAdmin, async (req, res) => {
         res.status(500).json({ error: 'Failed to get config' });
     }
 });
+router.get('/customers/:customerId', authenticateAdmin, async (req, res) => {
+    try {
+        const { customerId } = req.params;
+        if (!stripe) {
+            return res.status(500).json({ message: 'Stripe not configured' });
+        }
+        const [customer, charges, invoices, subscriptions] = await Promise.all([
+            stripe.customers.retrieve(customerId),
+            stripe.charges.list({ customer: customerId, limit: 100 }),
+            stripe.invoices.list({ customer: customerId, limit: 100 }),
+            stripe.subscriptions.list({ customer: customerId, limit: 100 })
+        ]);
+        const orderHistory = charges.data.map(charge => ({
+            id: charge.id,
+            date: new Date(charge.created * 1000).toISOString(),
+            amount: charge.amount / 100,
+            status: charge.status,
+            description: charge.description || 'Payment',
+            receiptUrl: charge.receipt_url,
+            type: 'charge'
+        }));
+        const invoiceOrders = invoices.data
+            .filter(inv => inv.status === 'paid')
+            .map(invoice => ({
+            id: invoice.id,
+            date: new Date(invoice.created * 1000).toISOString(),
+            amount: invoice.amount_paid / 100,
+            status: 'paid',
+            description: invoice.description || 'Subscription payment',
+            receiptUrl: invoice.hosted_invoice_url,
+            type: 'invoice'
+        }));
+        const allOrders = [...orderHistory, ...invoiceOrders].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        const activeSubscriptions = subscriptions.data.map(sub => ({
+            id: sub.id,
+            status: sub.status,
+            plan: sub.items.data[0]?.price.nickname || 'Subscription',
+            amount: sub.items.data[0]?.price.unit_amount ? sub.items.data[0].price.unit_amount / 100 : 0,
+            interval: sub.items.data[0]?.price.recurring?.interval || 'month',
+            currentPeriodEnd: new Date(sub.current_period_end * 1000).toISOString(),
+            cancelAtPeriodEnd: sub.cancel_at_period_end
+        }));
+        const totalSpent = allOrders.reduce((sum, order) => sum + order.amount, 0);
+        res.json({
+            customer: {
+                id: customer.id,
+                email: customer.email,
+                name: customer.name,
+                created: new Date(customer.created * 1000).toISOString()
+            },
+            orderHistory: allOrders,
+            subscriptions: activeSubscriptions,
+            totalSpent,
+            orderCount: allOrders.length
+        });
+    }
+    catch (error) {
+        console.error('Error fetching customer details:', error);
+        res.status(500).json({ message: 'Failed to fetch customer details' });
+    }
+});
 router.get('/customers', authenticateAdmin, async (req, res) => {
     try {
         if (!process.env.STRIPE_SECRET_KEY) {

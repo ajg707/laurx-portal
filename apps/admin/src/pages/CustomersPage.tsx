@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
-import { useAdmin } from '../contexts/AdminContext'
-import { Search, Mail, DollarSign, Calendar, Filter } from 'lucide-react'
+import { useAdmin, CustomerDetails } from '../contexts/AdminContext'
+import { Search, Mail, DollarSign, Calendar, Filter, X, ExternalLink } from 'lucide-react'
 
 const CustomersPage = () => {
-  const { customers, fetchCustomers, loading } = useAdmin()
+  const { customers, fetchCustomers, fetchCustomerDetails, loading } = useAdmin()
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'churned'>('all')
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerDetails | null>(null)
+  const [detailsLoading, setDetailsLoading] = useState(false)
 
   useEffect(() => {
     fetchCustomers()
@@ -25,6 +27,18 @@ const CustomersPage = () => {
       churned: 'badge-danger'
     }
     return badges[status as keyof typeof badges] || 'badge-neutral'
+  }
+
+  const handleViewDetails = async (customerId: string) => {
+    setDetailsLoading(true)
+    try {
+      const details = await fetchCustomerDetails(customerId)
+      setSelectedCustomer(details)
+    } catch (error) {
+      console.error('Failed to fetch customer details:', error)
+    } finally {
+      setDetailsLoading(false)
+    }
   }
 
   if (loading) {
@@ -192,15 +206,16 @@ const CustomersPage = () => {
                     ${customer.totalSpent.toFixed(2)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {customer.lastOrderDate 
+                    {customer.lastOrderDate
                       ? new Date(customer.lastOrderDate).toLocaleDateString()
                       : 'Never'
                     }
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <button
-                      onClick={() => console.log('View details for:', customer.id)}
+                      onClick={() => handleViewDetails(customer.id)}
                       className="text-laurx-600 hover:text-laurx-900 mr-4"
+                      disabled={detailsLoading}
                     >
                       View Details
                     </button>
@@ -220,11 +235,125 @@ const CustomersPage = () => {
           <Mail className="mx-auto h-12 w-12 text-gray-400" />
           <h3 className="mt-2 text-sm font-medium text-gray-900">No customers found</h3>
           <p className="mt-1 text-sm text-gray-500">
-            {searchTerm || statusFilter !== 'all' 
+            {searchTerm || statusFilter !== 'all'
               ? 'Try adjusting your search or filter criteria.'
               : 'Your customers will appear here once they sign up.'
             }
           </p>
+        </div>
+      )}
+
+      {/* Customer Details Modal */}
+      {selectedCustomer && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">{selectedCustomer.customer.name}</h2>
+                <p className="text-sm text-gray-500">{selectedCustomer.customer.email}</p>
+              </div>
+              <button
+                onClick={() => setSelectedCustomer(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
+              {/* Summary Stats */}
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <p className="text-sm text-gray-600">Total Spent</p>
+                  <p className="text-2xl font-bold text-gray-900">${selectedCustomer.totalSpent.toFixed(2)}</p>
+                </div>
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <p className="text-sm text-gray-600">Total Orders</p>
+                  <p className="text-2xl font-bold text-gray-900">{selectedCustomer.orderCount}</p>
+                </div>
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <p className="text-sm text-gray-600">Active Subscriptions</p>
+                  <p className="text-2xl font-bold text-gray-900">{selectedCustomer.subscriptions.length}</p>
+                </div>
+              </div>
+
+              {/* Subscriptions */}
+              {selectedCustomer.subscriptions.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold mb-3">Active Subscriptions</h3>
+                  <div className="space-y-3">
+                    {selectedCustomer.subscriptions.map(sub => (
+                      <div key={sub.id} className="border rounded-lg p-4">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="font-medium">{sub.plan}</p>
+                            <p className="text-sm text-gray-600">
+                              ${sub.amount.toFixed(2)}/{sub.interval}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-1">
+                              Status: <span className={`font-medium ${sub.status === 'active' ? 'text-green-600' : 'text-gray-600'}`}>{sub.status}</span>
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm text-gray-600">Next billing</p>
+                            <p className="text-sm font-medium">{new Date(sub.currentPeriodEnd).toLocaleDateString()}</p>
+                            {sub.cancelAtPeriodEnd && (
+                              <p className="text-xs text-red-600 mt-1">Cancels at period end</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Order History */}
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Order History</h3>
+                <div className="space-y-2">
+                  {selectedCustomer.orderHistory.length === 0 ? (
+                    <p className="text-gray-500 text-sm">No orders yet</p>
+                  ) : (
+                    selectedCustomer.orderHistory.map(order => (
+                      <div key={order.id} className="flex justify-between items-center border-b py-3">
+                        <div>
+                          <p className="font-medium">{order.description}</p>
+                          <p className="text-sm text-gray-500">{new Date(order.date).toLocaleDateString()}</p>
+                          <p className="text-xs text-gray-400 capitalize">{order.type} • {order.status}</p>
+                        </div>
+                        <div className="text-right flex items-center gap-3">
+                          <p className="font-medium">${order.amount.toFixed(2)}</p>
+                          {order.receiptUrl && (
+                            <a
+                              href={order.receiptUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-laurx-600 hover:text-laurx-700"
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t p-4 bg-gray-50 flex justify-end">
+              <button
+                onClick={() => setSelectedCustomer(null)}
+                className="btn-secondary"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

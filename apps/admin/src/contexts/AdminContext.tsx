@@ -10,6 +10,7 @@ interface AdminContextType {
   loading: boolean
   error: string | null
   fetchCustomers: () => Promise<void>
+  fetchCustomerDetails: (customerId: string) => Promise<CustomerDetails>
   fetchEmailCampaigns: () => Promise<void>
   fetchAutomationRules: () => Promise<void>
   fetchCoupons: () => Promise<void>
@@ -97,6 +98,35 @@ interface ActivityItem {
   timestamp: string
 }
 
+export interface CustomerDetails {
+  customer: {
+    id: string
+    email: string
+    name: string
+    created: string
+  }
+  orderHistory: Array<{
+    id: string
+    date: string
+    amount: number
+    status: string
+    description: string
+    receiptUrl: string | null
+    type: 'charge' | 'invoice'
+  }>
+  subscriptions: Array<{
+    id: string
+    status: string
+    plan: string
+    amount: number
+    interval: string
+    currentPeriodEnd: string
+    cancelAtPeriodEnd: boolean
+  }>
+  totalSpent: number
+  orderCount: number
+}
+
 const AdminContext = createContext<AdminContextType | undefined>(undefined)
 
 export const useAdmin = () => {
@@ -160,6 +190,20 @@ export const AdminProvider: React.FC<AdminProviderProps> = ({ children }) => {
       setCustomers(data.customers)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch customers')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fetchCustomerDetails = async (customerId: string): Promise<CustomerDetails> => {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await apiCall(`/api/admin/customers/${customerId}`)
+      return data
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch customer details')
+      throw err
     } finally {
       setLoading(false)
     }
@@ -295,6 +339,7 @@ export const AdminProvider: React.FC<AdminProviderProps> = ({ children }) => {
     loading,
     error,
     fetchCustomers,
+    fetchCustomerDetails,
     fetchEmailCampaigns,
     fetchAutomationRules,
     fetchCoupons,
