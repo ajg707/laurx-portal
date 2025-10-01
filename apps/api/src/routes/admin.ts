@@ -911,7 +911,7 @@ router.post('/groups', authenticateAdmin, async (req, res) => {
       type,
       customerIds: type === 'static' ? customerIds : undefined,
       criteria: type === 'dynamic' ? criteria : undefined,
-      createdBy: req.user.email
+      createdBy: (req as any).adminUser.email
     })
 
     res.json({ group })
