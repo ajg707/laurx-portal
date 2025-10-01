@@ -86,11 +86,19 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
                 const nextPeriodEnd = Math.min(...subscriptions.data.map(sub => sub.current_period_end));
                 nextDelivery = new Date(nextPeriodEnd * 1000).toISOString();
             }
-            const invoices = await stripe.invoices.list({
-                customer: customer.id,
-                limit: 100
-            });
-            totalOrders = invoices.data.filter(inv => inv.status === 'paid').length;
+            const [invoices, charges] = await Promise.all([
+                stripe.invoices.list({
+                    customer: customer.id,
+                    limit: 100
+                }),
+                stripe.charges.list({
+                    customer: customer.id,
+                    limit: 100
+                })
+            ]);
+            const paidInvoices = invoices.data.filter(inv => inv.status === 'paid').length;
+            const successfulCharges = charges.data.filter(charge => charge.status === 'succeeded').length;
+            totalOrders = paidInvoices + successfulCharges;
             hasPayments = totalOrders > 0;
         }
         const dashboardData = {

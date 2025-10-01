@@ -13,7 +13,8 @@
       "Bash(npm run build:*)",
       "Bash(npm run dev:*)",
       "Bash(firebase deploy:*)",
-      "Bash(npx tsx:*)"
+      "Bash(npx tsx:*)",
+      "Bash(firebase use:*)"
     ],
     "deny": [],
     "ask": []
