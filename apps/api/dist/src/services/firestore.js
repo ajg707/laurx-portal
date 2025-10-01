@@ -17,10 +17,27 @@ exports.getChargesFromCache = getChargesFromCache;
 exports.logWebhookEvent = logWebhookEvent;
 const firebase_admin_1 = __importDefault(require("firebase-admin"));
 if (!firebase_admin_1.default.apps.length) {
-    firebase_admin_1.default.initializeApp({
-        credential: firebase_admin_1.default.credential.applicationDefault(),
-        projectId: process.env.FIREBASE_PROJECT_ID || 'lr-subscriber-portal-68069'
-    });
+    if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+        try {
+            const serviceAccount = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+            firebase_admin_1.default.initializeApp({
+                credential: firebase_admin_1.default.credential.cert(serviceAccount),
+                projectId: process.env.FIREBASE_PROJECT_ID || 'lr-subscriber-portal-68069'
+            });
+            console.log('✅ Firebase Admin initialized with service account credentials');
+        }
+        catch (error) {
+            console.error('❌ Failed to parse Firebase credentials:', error);
+            throw error;
+        }
+    }
+    else {
+        firebase_admin_1.default.initializeApp({
+            credential: firebase_admin_1.default.credential.applicationDefault(),
+            projectId: process.env.FIREBASE_PROJECT_ID || 'lr-subscriber-portal-68069'
+        });
+        console.log('✅ Firebase Admin initialized with application default credentials');
+    }
 }
 exports.db = firebase_admin_1.default.firestore();
 exports.Collections = {

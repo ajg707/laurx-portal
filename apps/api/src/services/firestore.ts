@@ -2,12 +2,27 @@ import admin from 'firebase-admin'
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
-  // For production, use service account from environment variable
-  // For now, use application default credentials
-  admin.initializeApp({
-    credential: admin.credential.applicationDefault(),
-    projectId: process.env.FIREBASE_PROJECT_ID || 'lr-subscriber-portal-68069'
-  })
+  // Check if we have JSON credentials in environment (for Render/production)
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+    try {
+      const serviceAccount = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        projectId: process.env.FIREBASE_PROJECT_ID || 'lr-subscriber-portal-68069'
+      })
+      console.log('✅ Firebase Admin initialized with service account credentials')
+    } catch (error) {
+      console.error('❌ Failed to parse Firebase credentials:', error)
+      throw error
+    }
+  } else {
+    // For local development, use application default credentials
+    admin.initializeApp({
+      credential: admin.credential.applicationDefault(),
+      projectId: process.env.FIREBASE_PROJECT_ID || 'lr-subscriber-portal-68069'
+    })
+    console.log('✅ Firebase Admin initialized with application default credentials')
+  }
 }
 
 export const db = admin.firestore()
