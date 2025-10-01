@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { AlertCircle, CheckCircle, HelpCircle, DollarSign, XCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle, HelpCircle, DollarSign, XCircle, CreditCard } from 'lucide-react';
 
 const SupportPage = () => {
   const { token } = useAuth();
-  const [requestType, setRequestType] = useState<'refund' | 'cancellation' | 'general'>('general');
+  const [requestType, setRequestType] = useState<'refund' | 'cancellation' | 'payment_method' | 'general'>('general');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [orderId, setOrderId] = useState('');
@@ -128,7 +128,7 @@ const SupportPage = () => {
               <label className="block text-sm font-medium text-gray-700 mb-3">
                 Request Type
               </label>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <button
                   type="button"
                   onClick={() => setRequestType('general')}
@@ -174,6 +174,22 @@ const SupportPage = () => {
                   <h3 className="font-medium text-gray-900">Cancel Subscription</h3>
                   <p className="text-sm text-gray-600 mt-1">
                     Request subscription cancellation
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setRequestType('payment_method')}
+                  className={`p-4 border-2 rounded-lg text-left transition-colors ${
+                    requestType === 'payment_method'
+                      ? 'border-purple-600 bg-purple-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <CreditCard className={`h-6 w-6 mb-2 ${requestType === 'payment_method' ? 'text-purple-600' : 'text-gray-400'}`} />
+                  <h3 className="font-medium text-gray-900">Update Payment</h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Change payment method
                   </p>
                 </button>
               </div>
@@ -237,6 +253,7 @@ const SupportPage = () => {
                 placeholder={
                   requestType === 'refund' ? 'Refund request for order...' :
                   requestType === 'cancellation' ? 'Subscription cancellation request' :
+                  requestType === 'payment_method' ? 'Payment method update request' :
                   'Brief description of your issue'
                 }
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
@@ -246,7 +263,8 @@ const SupportPage = () => {
             {/* Message */}
             <div>
               <label htmlFor="message" className="block text-sm font-medium text-gray-700 mb-2">
-                {requestType === 'cancellation' ? 'Cancellation Reason' : 'Message'} <span className="text-red-500">*</span>
+                {requestType === 'cancellation' ? 'Cancellation Reason' :
+                 requestType === 'payment_method' ? 'New Payment Details' : 'Message'} <span className="text-red-500">*</span>
               </label>
               <textarea
                 id="message"
@@ -257,6 +275,7 @@ const SupportPage = () => {
                 placeholder={
                   requestType === 'refund' ? 'Please explain why you are requesting a refund...' :
                   requestType === 'cancellation' ? 'Please let us know why you want to cancel...' :
+                  requestType === 'payment_method' ? 'Describe what payment method you would like to use (our team will contact you securely to complete the change)...' :
                   'Provide details about your request or question...'
                 }
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"

@@ -111,13 +111,6 @@ router.get('/dashboard', authenticateToken, async (req: any, res: any) => {
           url: '/subscriptions'
         },
         {
-          id: 'payment-methods',
-          title: 'Payment Methods',
-          description: 'Update your payment information',
-          icon: 'payment',
-          url: '/payment-methods'
-        },
-        {
           id: 'order-history',
           title: 'Order History',
           description: 'View past orders and invoices',
@@ -409,8 +402,8 @@ router.post('/support/request', authenticateToken, async (req: any, res: any) =>
       return res.status(400).json({ error: 'Type, subject, and message are required' });
     }
 
-    // Valid types: 'refund', 'cancellation', 'general'
-    const validTypes = ['refund', 'cancellation', 'general'];
+    // Valid types: 'refund', 'cancellation', 'payment_method', 'general'
+    const validTypes = ['refund', 'cancellation', 'payment_method', 'general'];
     if (!validTypes.includes(type)) {
       return res.status(400).json({ error: 'Invalid request type' });
     }
@@ -452,6 +445,25 @@ router.post('/support/request', authenticateToken, async (req: any, res: any) =>
               <p style="margin: 0;"><strong>Reason:</strong></p>
               <p style="margin: 10px 0 0 0;">${message}</p>
             </div>
+            <p style="color: #6b7280; font-size: 14px;">This is an automated notification from the customer portal.</p>
+          </div>
+        `;
+        break;
+
+      case 'payment_method':
+        emailSubject = `Payment Method Update Request from ${userEmail}`;
+        emailBody = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #7c3aed;">Payment Method Update Request</h2>
+            <p><strong>Customer:</strong> ${userEmail}</p>
+            <p><strong>Subject:</strong> ${subject}</p>
+            <div style="background: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
+              <p style="margin: 0;"><strong>Details:</strong></p>
+              <p style="margin: 10px 0 0 0;">${message}</p>
+            </div>
+            <p style="background: #fef3c7; padding: 10px; border-radius: 5px; border-left: 4px solid #f59e0b;">
+              <strong>⚠️ Security Note:</strong> Please contact the customer directly using secure methods to update their payment information. Never request sensitive payment details via email.
+            </p>
             <p style="color: #6b7280; font-size: 14px;">This is an automated notification from the customer portal.</p>
           </div>
         `;
