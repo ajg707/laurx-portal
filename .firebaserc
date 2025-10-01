@@ -1,0 +1,28 @@
+{
+  "projects": {
+    "default": "lr-subscriber-portal"
+  },
+  "targets": {
+    "lr-subscriber-portal": {
+      "hosting": {
+        "portal": [
+          "lr-subscriber-portal"
+        ],
+        "admin": [
+          "lr-admin-portal"
+        ]
+      }
+    },
+    "lr-subscriber-portal-68069": {
+      "hosting": {
+        "portal": [
+          "lr-subscriber-portal-68069"
+        ],
+        "admin": [
+          "lr-admin"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

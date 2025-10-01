@@ -1,0 +1,220 @@
+import nodemailer from 'nodemailer';
+
+// Simple email service that works with Gmail app passwords
+export const sendVerificationEmail = async (email: string, code: string): Promise<void> => {
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+
+  const subject = 'Your LAURx Portal Verification Code';
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>LAURx Portal Verification</title>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #8B5A96, #A67BA8); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
+        .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
+        .code-box { background: white; border: 2px solid #8B5A96; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0; }
+        .code { font-size: 32px; font-weight: bold; color: #8B5A96; letter-spacing: 4px; }
+        .footer { text-align: center; margin-top: 20px; color: #666; font-size: 14px; }
+        .brand { font-size: 24px; font-weight: bold; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <div class="brand">LAURx Portal</div>
+          <p>Secure Access to Your Account</p>
+        </div>
+        <div class="content">
+          <h2>Verification Code</h2>
+          <p>Hello,</p>
+          <p>You've requested access to your LAURx customer portal. Please use the verification code below to complete your login:</p>
+          
+          <div class="code-box">
+            <div class="code">${code}</div>
+          </div>
+          
+          <p><strong>Important:</strong></p>
+          <ul>
+            <li>This code will expire in 10 minutes</li>
+            <li>For security, never share this code with anyone</li>
+            <li>If you didn't request this code, please ignore this email</li>
+          </ul>
+          
+          <p>Once logged in, you'll be able to:</p>
+          <ul>
+            <li>View and manage your subscriptions</li>
+            <li>Update payment methods</li>
+            <li>View order history and invoices</li>
+            <li>Modify delivery preferences</li>
+          </ul>
+          
+          <div class="footer">
+            <p>This email was sent from LAURx Portal Security System</p>
+            <p>If you have questions, contact us at support@mylaurelrose.com</p>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+  
+  const text = `
+    LAURx Portal - Verification Code
+    
+    Hello,
+    
+    You've requested access to your LAURx customer portal. 
+    
+    Your verification code is: ${code}
+    
+    This code will expire in 10 minutes.
+    
+    Once logged in, you'll be able to manage your subscriptions, update payment methods, and view your order history.
+    
+    If you didn't request this code, please ignore this email.
+    
+    Questions? Contact us at support@mylaurelrose.com
+  `;
+
+  const mailOptions = {
+    from: process.env.SMTP_USER,
+    to: email,
+    subject,
+    html,
+    text
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Verification email sent to ${email}`);
+  } catch (error: any) {
+    console.error(`❌ Failed to send email to ${email}:`, error.message);
+    throw new Error(`Email sending failed: ${error.message}`);
+  }
+};
+
+// Generic sendEmail function for admin use
+export const sendEmail = async (options: { to: string; subject: string; html: string; text?: string }): Promise<void> => {
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+
+  const text = options.text || options.html.replace(/<[^>]*>/g, ''); // Strip HTML if no text provided
+  
+  const mailOptions = {
+    from: process.env.SMTP_USER,
+    to: options.to,
+    subject: options.subject,
+    html: options.html,
+    text
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Email sent to ${options.to}`);
+  } catch (error: any) {
+    console.error(`❌ Failed to send email to ${options.to}:`, error.message);
+    throw new Error(`Email sending failed: ${error.message}`);
+  }
+};
+
+export const sendWelcomeEmail = async (email: string): Promise<void> => {
+  const subject = 'Welcome to LAURx Portal';
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Welcome to LAURx Portal</title>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #8B5A96, #A67BA8); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
+        .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
+        .brand { font-size: 24px; font-weight: bold; }
+        .feature { background: white; padding: 15px; margin: 10px 0; border-radius: 5px; border-left: 4px solid #8B5A96; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <div class="brand">Welcome to LAURx Portal</div>
+          <p>Your Personal Health Dashboard</p>
+        </div>
+        <div class="content">
+          <h2>You're all set!</h2>
+          <p>Welcome to your LAURx customer portal. You now have secure access to manage your immune support journey.</p>
+          
+          <h3>What you can do in your portal:</h3>
+          
+          <div class="feature">
+            <strong>📦 Manage Subscriptions</strong><br>
+            Pause, modify, or cancel your LAURx subscriptions anytime
+          </div>
+          
+          <div class="feature">
+            <strong>💳 Payment Methods</strong><br>
+            Securely update your payment information and billing details
+          </div>
+          
+          <div class="feature">
+            <strong>📋 Order History</strong><br>
+            View all your past orders and download invoices
+          </div>
+          
+          <div class="feature">
+            <strong>🚚 Delivery Preferences</strong><br>
+            Update your shipping address and delivery schedule
+          </div>
+          
+          <p>Questions or need support? We're here to help at support@mylaurelrose.com</p>
+          
+          <p>Thank you for choosing LAURx for your immune defense!</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+  
+  const text = `
+    Welcome to LAURx Portal
+    
+    You're all set!
+    
+    Welcome to your LAURx customer portal. You now have secure access to manage your immune support journey.
+    
+    What you can do in your portal:
+    - Manage Subscriptions: Pause, modify, or cancel your LAURx subscriptions anytime
+    - Payment Methods: Securely update your payment information and billing details
+    - Order History: View all your past orders and download invoices
+    - Delivery Preferences: Update your shipping address and delivery schedule
+    
+    Questions or need support? We're here to help at support@mylaurelrose.com
+    
+    Thank you for choosing LAURx for your immune defense!
+  `;
+
+  try {
+    await sendEmail({ to: email, subject, html, text });
+    console.log(`Welcome email sent to ${email}`);
+  } catch (error) {
+    console.error('Error sending welcome email:', error);
+    // Don't throw error for welcome email - it's not critical
+  }
+};
