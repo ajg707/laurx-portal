@@ -1012,14 +1012,22 @@ router.post('/groups', authenticateAdmin, async (req, res) => {
       return res.status(400).json({ message: 'Dynamic groups require criteria' })
     }
 
-    const group = await createGroup({
+    const groupData: any = {
       name,
       description: description || '',
       type,
-      customerIds: type === 'static' ? customerIds : undefined,
-      criteria: type === 'dynamic' ? criteria : undefined,
       createdBy: (req as any).adminUser.email
-    })
+    }
+
+    // Only add customerIds or criteria if they exist (Firestore doesn't allow undefined)
+    if (type === 'static' && customerIds) {
+      groupData.customerIds = customerIds
+    }
+    if (type === 'dynamic' && criteria) {
+      groupData.criteria = criteria
+    }
+
+    const group = await createGroup(groupData)
 
     res.json({ group })
   } catch (error) {

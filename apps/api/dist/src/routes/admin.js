@@ -827,14 +827,19 @@ router.post('/groups', authenticateAdmin, async (req, res) => {
         if (type === 'dynamic' && !criteria) {
             return res.status(400).json({ message: 'Dynamic groups require criteria' });
         }
-        const group = await createGroup({
+        const groupData = {
             name,
             description: description || '',
             type,
-            customerIds: type === 'static' ? customerIds : undefined,
-            criteria: type === 'dynamic' ? criteria : undefined,
             createdBy: req.adminUser.email
-        });
+        };
+        if (type === 'static' && customerIds) {
+            groupData.customerIds = customerIds;
+        }
+        if (type === 'dynamic' && criteria) {
+            groupData.criteria = criteria;
+        }
+        const group = await createGroup(groupData);
         res.json({ group });
     }
     catch (error) {
