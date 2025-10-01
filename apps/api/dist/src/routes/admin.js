@@ -762,6 +762,14 @@ router.get('/groups/:groupId', authenticateAdmin, async (req, res) => {
 });
 router.post('/groups', authenticateAdmin, async (req, res) => {
     try {
+        const { isFirebaseInitialized } = await Promise.resolve().then(() => __importStar(require('../services/firestore')));
+        if (!isFirebaseInitialized) {
+            return res.status(503).json({
+                message: 'Customer groups feature is not available',
+                error: 'Firebase/Firestore is not configured on this server',
+                details: 'Administrator needs to set GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable with Firebase service account credentials'
+            });
+        }
         const { createGroup } = await Promise.resolve().then(() => __importStar(require('../services/customerGroups')));
         const { name, description, type, customerIds, criteria } = req.body;
         if (!name || !type) {

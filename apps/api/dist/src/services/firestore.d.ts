@@ -1,5 +1,6 @@
-import admin from 'firebase-admin';
-export declare const db: admin.firestore.Firestore;
+declare let isFirebaseInitialized: boolean;
+export declare const db: any;
+export { isFirebaseInitialized };
 export declare const Collections: {
     CUSTOMERS: string;
     SUBSCRIPTIONS: string;
@@ -60,9 +61,7 @@ export declare function saveInvoice(invoice: any): Promise<void>;
 export declare function saveCharge(charge: any): Promise<void>;
 export declare function deleteCustomer(customerId: string): Promise<void>;
 export declare function deleteSubscription(subscriptionId: string): Promise<void>;
-export declare function getCustomersFromCache(): Promise<{
-    id: string;
-}[]>;
+export declare function getCustomersFromCache(): Promise<any>;
 export declare function getSubscriptionsFromCache(customerId?: string): Promise<any>;
 export declare function getInvoicesFromCache(customerId?: string): Promise<any>;
 export declare function getChargesFromCache(customerId?: string): Promise<any>;

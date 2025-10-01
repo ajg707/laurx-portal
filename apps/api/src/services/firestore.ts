@@ -1,6 +1,8 @@
 import admin from 'firebase-admin'
 
 // Initialize Firebase Admin
+let isFirebaseInitialized = false
+
 if (!admin.apps.length) {
   // Check if we have JSON credentials in environment (for Render/production)
   if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
@@ -11,21 +13,30 @@ if (!admin.apps.length) {
         projectId: process.env.FIREBASE_PROJECT_ID || 'lr-subscriber-portal-68069'
       })
       console.log('✅ Firebase Admin initialized with service account credentials')
+      isFirebaseInitialized = true
     } catch (error) {
       console.error('❌ Failed to parse Firebase credentials:', error)
-      throw error
+      console.warn('⚠️  Customer groups and Firestore cache features will be disabled')
     }
   } else {
-    // For local development, use application default credentials
-    admin.initializeApp({
-      credential: admin.credential.applicationDefault(),
-      projectId: process.env.FIREBASE_PROJECT_ID || 'lr-subscriber-portal-68069'
-    })
-    console.log('✅ Firebase Admin initialized with application default credentials')
+    try {
+      // For local development, use application default credentials
+      admin.initializeApp({
+        credential: admin.credential.applicationDefault(),
+        projectId: process.env.FIREBASE_PROJECT_ID || 'lr-subscriber-portal-68069'
+      })
+      console.log('✅ Firebase Admin initialized with application default credentials')
+      isFirebaseInitialized = true
+    } catch (error) {
+      console.error('❌ Firebase Admin not initialized - credentials not found')
+      console.warn('⚠️  Customer groups and Firestore cache features will be disabled')
+      console.warn('⚠️  Set GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable to enable')
+    }
   }
 }
 
-export const db = admin.firestore()
+export const db = admin.apps.length > 0 ? admin.firestore() : null as any
+export { isFirebaseInitialized }
 
 // Collection names
 export const Collections = {

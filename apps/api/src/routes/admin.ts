@@ -930,6 +930,16 @@ router.get('/groups/:groupId', authenticateAdmin, async (req, res) => {
 // Create customer group
 router.post('/groups', authenticateAdmin, async (req, res) => {
   try {
+    // Check if Firestore is available
+    const { isFirebaseInitialized } = await import('../services/firestore')
+    if (!isFirebaseInitialized) {
+      return res.status(503).json({
+        message: 'Customer groups feature is not available',
+        error: 'Firebase/Firestore is not configured on this server',
+        details: 'Administrator needs to set GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable with Firebase service account credentials'
+      })
+    }
+
     const { createGroup } = await import('../services/customerGroups')
     const { name, description, type, customerIds, criteria } = req.body
 

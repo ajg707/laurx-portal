@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Collections = exports.db = void 0;
+exports.Collections = exports.isFirebaseInitialized = exports.db = void 0;
 exports.saveCustomer = saveCustomer;
 exports.saveSubscription = saveSubscription;
 exports.saveInvoice = saveInvoice;
@@ -16,6 +16,8 @@ exports.getInvoicesFromCache = getInvoicesFromCache;
 exports.getChargesFromCache = getChargesFromCache;
 exports.logWebhookEvent = logWebhookEvent;
 const firebase_admin_1 = __importDefault(require("firebase-admin"));
+let isFirebaseInitialized = false;
+exports.isFirebaseInitialized = isFirebaseInitialized;
 if (!firebase_admin_1.default.apps.length) {
     if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
         try {
@@ -25,21 +27,30 @@ if (!firebase_admin_1.default.apps.length) {
                 projectId: process.env.FIREBASE_PROJECT_ID || 'lr-subscriber-portal-68069'
             });
             console.log('✅ Firebase Admin initialized with service account credentials');
+            exports.isFirebaseInitialized = isFirebaseInitialized = true;
         }
         catch (error) {
             console.error('❌ Failed to parse Firebase credentials:', error);
-            throw error;
+            console.warn('⚠️  Customer groups and Firestore cache features will be disabled');
         }
     }
     else {
-        firebase_admin_1.default.initializeApp({
-            credential: firebase_admin_1.default.credential.applicationDefault(),
-            projectId: process.env.FIREBASE_PROJECT_ID || 'lr-subscriber-portal-68069'
-        });
-        console.log('✅ Firebase Admin initialized with application default credentials');
+        try {
+            firebase_admin_1.default.initializeApp({
+                credential: firebase_admin_1.default.credential.applicationDefault(),
+                projectId: process.env.FIREBASE_PROJECT_ID || 'lr-subscriber-portal-68069'
+            });
+            console.log('✅ Firebase Admin initialized with application default credentials');
+            exports.isFirebaseInitialized = isFirebaseInitialized = true;
+        }
+        catch (error) {
+            console.error('❌ Firebase Admin not initialized - credentials not found');
+            console.warn('⚠️  Customer groups and Firestore cache features will be disabled');
+            console.warn('⚠️  Set GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable to enable');
+        }
     }
 }
-exports.db = firebase_admin_1.default.firestore();
+exports.db = firebase_admin_1.default.apps.length > 0 ? firebase_admin_1.default.firestore() : null;
 exports.Collections = {
     CUSTOMERS: 'customers',
     SUBSCRIPTIONS: 'subscriptions',
