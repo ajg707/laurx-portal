@@ -220,48 +220,81 @@ router.get('/customers', authenticateAdmin, async (req, res) => {
 // Get analytics data
 router.get('/analytics', authenticateAdmin, async (req, res) => {
   try {
+    if (!process.env.STRIPE_SECRET_KEY) {
+      return res.status(500).json({ message: 'Stripe API key not configured' })
+    }
+
     const customers = await stripe.customers.list({ limit: 100 })
     const subscriptions = await stripe.subscriptions.list({ limit: 100 })
     const invoices = await stripe.invoices.list({ limit: 100 })
 
-    const activeSubscriptions = subscriptions.data.filter(sub => sub.status === 'active').length
+    // Count active subscriptions (including trialing, active, past_due)
+    const activeSubscriptions = subscriptions.data.filter(sub =>
+      ['active', 'trialing', 'past_due'].includes(sub.status)
+    ).length
+
     const totalCustomers = customers.data.length
-    
+
+    // Calculate current month revenue
     const currentMonth = new Date()
     currentMonth.setDate(1)
-    const monthlyInvoices = invoices.data.filter(invoice => 
-      new Date(invoice.created * 1000) >= currentMonth
+    currentMonth.setHours(0, 0, 0, 0)
+    const monthlyInvoices = invoices.data.filter(invoice =>
+      invoice.status === 'paid' && new Date(invoice.created * 1000) >= currentMonth
     )
     const monthlyRevenue = monthlyInvoices.reduce((sum, invoice) => sum + (invoice.amount_paid || 0), 0) / 100
+
+    // Calculate all-time revenue
+    const allTimeRevenue = invoices.data
+      .filter(invoice => invoice.status === 'paid')
+      .reduce((sum, invoice) => sum + (invoice.amount_paid || 0), 0) / 100
+
+    // Calculate last 30 days revenue
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const last30DaysInvoices = invoices.data.filter(invoice =>
+      invoice.status === 'paid' && new Date(invoice.created * 1000) >= thirtyDaysAgo
+    )
+    const last30DaysRevenue = last30DaysInvoices.reduce((sum, invoice) => sum + (invoice.amount_paid || 0), 0) / 100
 
     // Calculate churn rate (simplified)
     const cancelledSubs = subscriptions.data.filter(sub => sub.status === 'canceled').length
     const churnRate = totalCustomers > 0 ? (cancelledSubs / totalCustomers) * 100 : 0
 
+    // Get recent invoices for activity
+    const recentInvoices = invoices.data
+      .filter(inv => inv.status === 'paid')
+      .sort((a, b) => b.created - a.created)
+      .slice(0, 5)
+
+    const recentActivity = recentInvoices.map(invoice => ({
+      id: invoice.id,
+      type: 'payment_received' as const,
+      description: `Payment of $${(invoice.amount_paid || 0) / 100} from ${invoice.customer_email || 'customer'}`,
+      timestamp: new Date(invoice.created * 1000).toISOString()
+    }))
+
     const analytics = {
       totalCustomers,
       activeSubscriptions,
       monthlyRevenue,
+      allTimeRevenue,
+      last30DaysRevenue,
       churnRate,
       emailStats: {
-        campaignsSent: 12, // Mock data - implement email tracking
-        averageOpenRate: 24.5,
-        averageClickRate: 3.2
+        campaignsSent: 0,
+        averageOpenRate: 0,
+        averageClickRate: 0
       },
-      recentActivity: [
-        {
-          id: '1',
-          type: 'subscription_created',
-          description: 'New subscription created',
-          timestamp: new Date().toISOString()
-        },
-        {
-          id: '2',
-          type: 'email_sent',
-          description: 'Renewal reminder sent to 15 customers',
-          timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
-        }
-      ]
+      recentActivity,
+      debug: {
+        totalInvoices: invoices.data.length,
+        paidInvoices: invoices.data.filter(i => i.status === 'paid').length,
+        totalSubscriptions: subscriptions.data.length,
+        subscriptionStatuses: subscriptions.data.reduce((acc, sub) => {
+          acc[sub.status] = (acc[sub.status] || 0) + 1
+          return acc
+        }, {} as Record<string, number>)
+      }
     }
 
     res.json({ analytics })
