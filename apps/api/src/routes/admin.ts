@@ -252,18 +252,87 @@ router.get('/customers', authenticateAdmin, async (req, res) => {
       return res.status(500).json({ message: 'Stripe API key not configured' })
     }
 
-    // Fetch all data in parallel (much faster than per-customer)
-    const [customersResponse, subscriptionsResponse, invoicesResponse, chargesResponse] = await Promise.all([
-      stripe.customers.list({ limit: 100 }),
-      stripe.subscriptions.list({ limit: 100 }),
-      stripe.invoices.list({ limit: 100 }),
-      stripe.charges.list({ limit: 100 })
-    ])
+    // Try Firestore cache first for better performance
+    let customersData: any[] = []
+    let subscriptionsData: any[] = []
+    let invoicesData: any[] = []
+    let chargesData: any[] = []
+
+    try {
+      const { getCustomersFromCache, getSubscriptionsFromCache, getInvoicesFromCache, getChargesFromCache } = await import('../services/firestore')
+
+      const [cachedCustomers, cachedSubscriptions, cachedInvoices, cachedCharges] = await Promise.all([
+        getCustomersFromCache(),
+        getSubscriptionsFromCache(),
+        getInvoicesFromCache(),
+        getChargesFromCache()
+      ])
+
+      if (cachedCustomers.length > 0) {
+        console.log(`📦 Using Firestore cache: ${cachedCustomers.length} customers`)
+        customersData = cachedCustomers
+        subscriptionsData = cachedSubscriptions
+        invoicesData = cachedInvoices
+        chargesData = cachedCharges
+      }
+    } catch (cacheError) {
+      console.log('⚠️  Firestore cache unavailable, falling back to Stripe API:', cacheError)
+    }
+
+    // Fall back to Stripe API if cache is empty
+    if (customersData.length === 0) {
+      console.log('🔄 Fetching from Stripe API (cache empty)')
+      const [customersResponse, subscriptionsResponse, invoicesResponse, chargesResponse] = await Promise.all([
+        stripe.customers.list({ limit: 100 }),
+        stripe.subscriptions.list({ limit: 100 }),
+        stripe.invoices.list({ limit: 100 }),
+        stripe.charges.list({ limit: 100 })
+      ])
+
+      customersData = customersResponse.data.map((c: any) => ({
+        stripeId: c.id,
+        email: c.email,
+        name: c.name,
+        created: c.created,
+        metadata: c.metadata || {}
+      }))
+      subscriptionsData = subscriptionsResponse.data.map((s: any) => ({
+        stripeId: s.id,
+        customerId: typeof s.customer === 'string' ? s.customer : s.customer?.id,
+        status: s.status,
+        currentPeriodEnd: s.current_period_end,
+        currentPeriodStart: s.current_period_start,
+        cancelAtPeriodEnd: s.cancel_at_period_end,
+        planId: s.items.data[0]?.price.id || '',
+        planAmount: s.items.data[0]?.price.unit_amount || 0,
+        planInterval: s.items.data[0]?.price.recurring?.interval || 'month',
+        planNickname: s.items.data[0]?.price.nickname || null
+      }))
+      invoicesData = invoicesResponse.data.map((i: any) => ({
+        stripeId: i.id,
+        customerId: typeof i.customer === 'string' ? i.customer : i.customer?.id,
+        status: i.status,
+        amountPaid: i.amount_paid || 0,
+        amountDue: i.amount_due || 0,
+        created: i.created,
+        description: i.description || null,
+        hostedInvoiceUrl: i.hosted_invoice_url || null
+      }))
+      chargesData = chargesResponse.data.map((ch: any) => ({
+        stripeId: ch.id,
+        customerId: ch.customer,
+        status: ch.status,
+        amount: ch.amount,
+        created: ch.created,
+        description: ch.description || null,
+        receiptUrl: ch.receipt_url || null
+      }))
+    }
 
     // Group subscriptions and invoices by customer
-    const subscriptionsByCustomer = new Map<string, typeof subscriptionsResponse.data>()
-    subscriptionsResponse.data.forEach(sub => {
-      const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer?.id
+    const subscriptionsByCustomer = new Map<string, any[]>()
+    subscriptionsData.forEach(sub => {
+      const customerId = sub.customerId || sub.stripeId
       if (customerId) {
         const existing = subscriptionsByCustomer.get(customerId) || []
         existing.push(sub)
@@ -271,9 +340,9 @@ router.get('/customers', authenticateAdmin, async (req, res) => {
       }
     })
 
-    const invoicesByCustomer = new Map<string, typeof invoicesResponse.data>()
-    invoicesResponse.data.forEach(inv => {
-      const customerId = typeof inv.customer === 'string' ? inv.customer : inv.customer?.id
+    const invoicesByCustomer = new Map<string, any[]>()
+    invoicesData.forEach(inv => {
+      const customerId = inv.customerId
       if (customerId) {
         const existing = invoicesByCustomer.get(customerId) || []
         existing.push(inv)
@@ -281,9 +350,9 @@ router.get('/customers', authenticateAdmin, async (req, res) => {
       }
     })
 
-    const chargesByCustomer = new Map<string, typeof chargesResponse.data>()
-    chargesResponse.data.forEach(charge => {
-      const customerId = charge.customer as string
+    const chargesByCustomer = new Map<string, any[]>()
+    chargesData.forEach(charge => {
+      const customerId = charge.customerId
       if (customerId) {
         const existing = chargesByCustomer.get(customerId) || []
         existing.push(charge)
@@ -292,18 +361,19 @@ router.get('/customers', authenticateAdmin, async (req, res) => {
     })
 
     // Build customer objects
-    const customersWithSubscriptions = customersResponse.data.map(customer => {
-      const customerSubs = subscriptionsByCustomer.get(customer.id) || []
-      const customerInvoices = invoicesByCustomer.get(customer.id) || []
-      const customerCharges = chargesByCustomer.get(customer.id) || []
+    const customersWithSubscriptions = customersData.map(customer => {
+      const customerId = customer.stripeId || customer.id
+      const customerSubs = subscriptionsByCustomer.get(customerId) || []
+      const customerInvoices = invoicesByCustomer.get(customerId) || []
+      const customerCharges = chargesByCustomer.get(customerId) || []
 
       // Calculate total spent from both invoices and charges
       const invoiceTotal = customerInvoices
-        .filter(inv => inv.status === 'paid' && inv.amount_paid)
-        .reduce((sum, invoice) => sum + invoice.amount_paid, 0)
+        .filter(inv => inv.status === 'paid' && inv.amountPaid)
+        .reduce((sum, invoice) => sum + invoice.amountPaid, 0)
 
       const chargeTotal = customerCharges
-        .filter(charge => charge.status === 'succeeded' && charge.paid)
+        .filter(charge => charge.status === 'succeeded')
         .reduce((sum, charge) => sum + charge.amount, 0)
 
       const totalSpent = (invoiceTotal + chargeTotal) / 100
@@ -313,16 +383,16 @@ router.get('/customers', authenticateAdmin, async (req, res) => {
       )
 
       return {
-        id: customer.id,
+        id: customerId,
         email: customer.email,
         name: customer.name || customer.email,
         subscriptions: customerSubs.map(sub => ({
-          id: sub.id,
+          id: sub.stripeId || sub.id,
           status: sub.status,
-          currentPeriodEnd: new Date(sub.current_period_end * 1000).toISOString(),
-          product: sub.items.data[0]?.price?.nickname || 'Unknown',
-          price: (sub.items.data[0]?.price?.unit_amount || 0) / 100,
-          interval: sub.items.data[0]?.price?.recurring?.interval || 'month'
+          currentPeriodEnd: new Date(sub.currentPeriodEnd * 1000).toISOString(),
+          product: sub.planNickname || 'Unknown',
+          price: (sub.planAmount || 0) / 100,
+          interval: sub.planInterval || 'month'
         })),
         totalSpent,
         createdAt: new Date(customer.created * 1000).toISOString(),

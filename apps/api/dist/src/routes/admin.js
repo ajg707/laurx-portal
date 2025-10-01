@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -197,15 +230,79 @@ router.get('/customers', authenticateAdmin, async (req, res) => {
         if (!process.env.STRIPE_SECRET_KEY) {
             return res.status(500).json({ message: 'Stripe API key not configured' });
         }
-        const [customersResponse, subscriptionsResponse, invoicesResponse, chargesResponse] = await Promise.all([
-            stripe.customers.list({ limit: 100 }),
-            stripe.subscriptions.list({ limit: 100 }),
-            stripe.invoices.list({ limit: 100 }),
-            stripe.charges.list({ limit: 100 })
-        ]);
+        let customersData = [];
+        let subscriptionsData = [];
+        let invoicesData = [];
+        let chargesData = [];
+        try {
+            const { getCustomersFromCache, getSubscriptionsFromCache, getInvoicesFromCache, getChargesFromCache } = await Promise.resolve().then(() => __importStar(require('../services/firestore')));
+            const [cachedCustomers, cachedSubscriptions, cachedInvoices, cachedCharges] = await Promise.all([
+                getCustomersFromCache(),
+                getSubscriptionsFromCache(),
+                getInvoicesFromCache(),
+                getChargesFromCache()
+            ]);
+            if (cachedCustomers.length > 0) {
+                console.log(`📦 Using Firestore cache: ${cachedCustomers.length} customers`);
+                customersData = cachedCustomers;
+                subscriptionsData = cachedSubscriptions;
+                invoicesData = cachedInvoices;
+                chargesData = cachedCharges;
+            }
+        }
+        catch (cacheError) {
+            console.log('⚠️  Firestore cache unavailable, falling back to Stripe API:', cacheError);
+        }
+        if (customersData.length === 0) {
+            console.log('🔄 Fetching from Stripe API (cache empty)');
+            const [customersResponse, subscriptionsResponse, invoicesResponse, chargesResponse] = await Promise.all([
+                stripe.customers.list({ limit: 100 }),
+                stripe.subscriptions.list({ limit: 100 }),
+                stripe.invoices.list({ limit: 100 }),
+                stripe.charges.list({ limit: 100 })
+            ]);
+            customersData = customersResponse.data.map((c) => ({
+                stripeId: c.id,
+                email: c.email,
+                name: c.name,
+                created: c.created,
+                metadata: c.metadata || {}
+            }));
+            subscriptionsData = subscriptionsResponse.data.map((s) => ({
+                stripeId: s.id,
+                customerId: typeof s.customer === 'string' ? s.customer : s.customer?.id,
+                status: s.status,
+                currentPeriodEnd: s.current_period_end,
+                currentPeriodStart: s.current_period_start,
+                cancelAtPeriodEnd: s.cancel_at_period_end,
+                planId: s.items.data[0]?.price.id || '',
+                planAmount: s.items.data[0]?.price.unit_amount || 0,
+                planInterval: s.items.data[0]?.price.recurring?.interval || 'month',
+                planNickname: s.items.data[0]?.price.nickname || null
+            }));
+            invoicesData = invoicesResponse.data.map((i) => ({
+                stripeId: i.id,
+                customerId: typeof i.customer === 'string' ? i.customer : i.customer?.id,
+                status: i.status,
+                amountPaid: i.amount_paid || 0,
+                amountDue: i.amount_due || 0,
+                created: i.created,
+                description: i.description || null,
+                hostedInvoiceUrl: i.hosted_invoice_url || null
+            }));
+            chargesData = chargesResponse.data.map((ch) => ({
+                stripeId: ch.id,
+                customerId: ch.customer,
+                status: ch.status,
+                amount: ch.amount,
+                created: ch.created,
+                description: ch.description || null,
+                receiptUrl: ch.receipt_url || null
+            }));
+        }
         const subscriptionsByCustomer = new Map();
-        subscriptionsResponse.data.forEach(sub => {
-            const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer?.id;
+        subscriptionsData.forEach(sub => {
+            const customerId = sub.customerId || sub.stripeId;
             if (customerId) {
                 const existing = subscriptionsByCustomer.get(customerId) || [];
                 existing.push(sub);
@@ -213,8 +310,8 @@ router.get('/customers', authenticateAdmin, async (req, res) => {
             }
         });
         const invoicesByCustomer = new Map();
-        invoicesResponse.data.forEach(inv => {
-            const customerId = typeof inv.customer === 'string' ? inv.customer : inv.customer?.id;
+        invoicesData.forEach(inv => {
+            const customerId = inv.customerId;
             if (customerId) {
                 const existing = invoicesByCustomer.get(customerId) || [];
                 existing.push(inv);
@@ -222,37 +319,38 @@ router.get('/customers', authenticateAdmin, async (req, res) => {
             }
         });
         const chargesByCustomer = new Map();
-        chargesResponse.data.forEach(charge => {
-            const customerId = charge.customer;
+        chargesData.forEach(charge => {
+            const customerId = charge.customerId;
             if (customerId) {
                 const existing = chargesByCustomer.get(customerId) || [];
                 existing.push(charge);
                 chargesByCustomer.set(customerId, existing);
             }
         });
-        const customersWithSubscriptions = customersResponse.data.map(customer => {
-            const customerSubs = subscriptionsByCustomer.get(customer.id) || [];
-            const customerInvoices = invoicesByCustomer.get(customer.id) || [];
-            const customerCharges = chargesByCustomer.get(customer.id) || [];
+        const customersWithSubscriptions = customersData.map(customer => {
+            const customerId = customer.stripeId || customer.id;
+            const customerSubs = subscriptionsByCustomer.get(customerId) || [];
+            const customerInvoices = invoicesByCustomer.get(customerId) || [];
+            const customerCharges = chargesByCustomer.get(customerId) || [];
             const invoiceTotal = customerInvoices
-                .filter(inv => inv.status === 'paid' && inv.amount_paid)
-                .reduce((sum, invoice) => sum + invoice.amount_paid, 0);
+                .filter(inv => inv.status === 'paid' && inv.amountPaid)
+                .reduce((sum, invoice) => sum + invoice.amountPaid, 0);
             const chargeTotal = customerCharges
-                .filter(charge => charge.status === 'succeeded' && charge.paid)
+                .filter(charge => charge.status === 'succeeded')
                 .reduce((sum, charge) => sum + charge.amount, 0);
             const totalSpent = (invoiceTotal + chargeTotal) / 100;
             const hasActiveSubscription = customerSubs.some(sub => ['active', 'trialing', 'past_due'].includes(sub.status));
             return {
-                id: customer.id,
+                id: customerId,
                 email: customer.email,
                 name: customer.name || customer.email,
                 subscriptions: customerSubs.map(sub => ({
-                    id: sub.id,
+                    id: sub.stripeId || sub.id,
                     status: sub.status,
-                    currentPeriodEnd: new Date(sub.current_period_end * 1000).toISOString(),
-                    product: sub.items.data[0]?.price?.nickname || 'Unknown',
-                    price: (sub.items.data[0]?.price?.unit_amount || 0) / 100,
-                    interval: sub.items.data[0]?.price?.recurring?.interval || 'month'
+                    currentPeriodEnd: new Date(sub.currentPeriodEnd * 1000).toISOString(),
+                    product: sub.planNickname || 'Unknown',
+                    price: (sub.planAmount || 0) / 100,
+                    interval: sub.planInterval || 'month'
                 })),
                 totalSpent,
                 createdAt: new Date(customer.created * 1000).toISOString(),
