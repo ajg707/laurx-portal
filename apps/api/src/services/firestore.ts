@@ -75,6 +75,7 @@ export interface FirestoreInvoice {
   created: number
   description: string | null
   hostedInvoiceUrl: string | null
+  charge: string | null  // Charge ID for deduplication
   lastUpdated: number
 }
 
@@ -132,6 +133,7 @@ export async function saveInvoice(invoice: any) {
     created: invoice.created,
     description: invoice.description || null,
     hostedInvoiceUrl: invoice.hosted_invoice_url || null,
+    charge: invoice.charge || null,  // Store charge ID for deduplication
     lastUpdated: Date.now()
   }
 

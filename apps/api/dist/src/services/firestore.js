@@ -88,6 +88,7 @@ async function saveInvoice(invoice) {
         created: invoice.created,
         description: invoice.description || null,
         hostedInvoiceUrl: invoice.hosted_invoice_url || null,
+        charge: invoice.charge || null,
         lastUpdated: Date.now()
     };
     await exports.db.collection(exports.Collections.INVOICES).doc(invoice.id).set(doc, { merge: true });

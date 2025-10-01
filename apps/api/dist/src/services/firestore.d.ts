@@ -41,6 +41,7 @@ export interface FirestoreInvoice {
     created: number;
     description: string | null;
     hostedInvoiceUrl: string | null;
+    charge: string | null;
     lastUpdated: number;
 }
 export interface FirestoreCharge {

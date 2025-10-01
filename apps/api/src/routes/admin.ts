@@ -330,7 +330,8 @@ router.get('/customers', authenticateAdmin, async (req, res) => {
         amountDue: i.amount_due || 0,
         created: i.created,
         description: i.description || null,
-        hostedInvoiceUrl: i.hosted_invoice_url || null
+        hostedInvoiceUrl: i.hosted_invoice_url || null,
+        charge: i.charge // Include charge ID for deduplication
       }))
       chargesData = chargesResponse.data.map((ch: any) => ({
         stripeId: ch.id,
@@ -956,7 +957,12 @@ router.post('/groups', authenticateAdmin, async (req, res) => {
     res.json({ group })
   } catch (error) {
     console.error('Error creating group:', error)
-    res.status(500).json({ message: 'Failed to create group' })
+    const errorMessage = error instanceof Error ? error.message : 'Failed to create group'
+    res.status(500).json({
+      message: 'Failed to create group',
+      error: errorMessage,
+      details: 'Check server logs for more information'
+    })
   }
 })
 
