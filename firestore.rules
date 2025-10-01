@@ -1,0 +1,20 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Allow server-side access (Firebase Admin SDK) - this is what your API uses
+    // Admin SDK bypasses these rules automatically
+
+    // Block all client-side access (browser/mobile apps)
+    // Your API will access Firestore via Admin SDK which bypasses these rules
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // If you ever need to allow client access for specific collections, add rules like:
+    // match /customers/{customerId} {
+    //   allow read: if request.auth != null && request.auth.uid == customerId;
+    // }
+  }
+}
