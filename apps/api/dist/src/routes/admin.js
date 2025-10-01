@@ -176,7 +176,12 @@ router.get('/customers/:customerId', authenticateAdmin, async (req, res) => {
             stripe.invoices.list({ customer: customerId, limit: 100 }),
             stripe.subscriptions.list({ customer: customerId, limit: 100 })
         ]);
-        const orderHistory = charges.data.map(charge => ({
+        const invoiceChargeIds = new Set(invoices.data
+            .filter(inv => inv.charge && inv.status === 'paid')
+            .map(inv => typeof inv.charge === 'string' ? inv.charge : inv.charge?.id)
+            .filter(Boolean));
+        const standaloneCharges = charges.data.filter(charge => !invoiceChargeIds.has(charge.id));
+        const orderHistory = standaloneCharges.map(charge => ({
             id: charge.id,
             date: new Date(charge.created * 1000).toISOString(),
             amount: charge.amount / 100,
@@ -332,10 +337,15 @@ router.get('/customers', authenticateAdmin, async (req, res) => {
             const customerSubs = subscriptionsByCustomer.get(customerId) || [];
             const customerInvoices = invoicesByCustomer.get(customerId) || [];
             const customerCharges = chargesByCustomer.get(customerId) || [];
+            const invoiceChargeIds = new Set(customerInvoices
+                .filter(inv => inv.charge && inv.status === 'paid')
+                .map(inv => typeof inv.charge === 'string' ? inv.charge : inv.charge?.id)
+                .filter(Boolean));
+            const standaloneCharges = customerCharges.filter(charge => !invoiceChargeIds.has(charge.stripeId || charge.id));
             const invoiceTotal = customerInvoices
                 .filter(inv => inv.status === 'paid' && inv.amountPaid)
                 .reduce((sum, invoice) => sum + invoice.amountPaid, 0);
-            const chargeTotal = customerCharges
+            const chargeTotal = standaloneCharges
                 .filter(charge => charge.status === 'succeeded')
                 .reduce((sum, charge) => sum + charge.amount, 0);
             const totalSpent = (invoiceTotal + chargeTotal) / 100;
@@ -377,26 +387,29 @@ router.get('/analytics', authenticateAdmin, async (req, res) => {
         const charges = await stripe.charges.list({ limit: 100 });
         const activeSubscriptions = subscriptions.data.filter(sub => ['active', 'trialing', 'past_due'].includes(sub.status)).length;
         const totalCustomers = customers.data.length;
+        const invoiceChargeIds = new Set(invoices.data
+            .filter(inv => inv.charge && inv.status === 'paid')
+            .map(inv => typeof inv.charge === 'string' ? inv.charge : inv.charge?.id)
+            .filter(Boolean));
+        const standaloneCharges = charges.data.filter(charge => charge.status === 'succeeded' && !invoiceChargeIds.has(charge.id));
         const currentMonth = new Date();
         currentMonth.setDate(1);
         currentMonth.setHours(0, 0, 0, 0);
         const monthlyInvoices = invoices.data.filter(invoice => invoice.status === 'paid' && new Date(invoice.created * 1000) >= currentMonth);
         const monthlyInvoiceRevenue = monthlyInvoices.reduce((sum, invoice) => sum + (invoice.amount_paid || 0), 0);
-        const monthlyCharges = charges.data.filter(charge => charge.status === 'succeeded' && new Date(charge.created * 1000) >= currentMonth);
-        const monthlyChargeRevenue = monthlyCharges.reduce((sum, charge) => sum + charge.amount, 0);
+        const monthlyStandaloneCharges = standaloneCharges.filter(charge => new Date(charge.created * 1000) >= currentMonth);
+        const monthlyChargeRevenue = monthlyStandaloneCharges.reduce((sum, charge) => sum + charge.amount, 0);
         const monthlyRevenue = (monthlyInvoiceRevenue + monthlyChargeRevenue) / 100;
         const allTimeInvoiceRevenue = invoices.data
             .filter(invoice => invoice.status === 'paid')
             .reduce((sum, invoice) => sum + (invoice.amount_paid || 0), 0);
-        const allTimeChargeRevenue = charges.data
-            .filter(charge => charge.status === 'succeeded')
-            .reduce((sum, charge) => sum + charge.amount, 0);
+        const allTimeChargeRevenue = standaloneCharges.reduce((sum, charge) => sum + charge.amount, 0);
         const allTimeRevenue = (allTimeInvoiceRevenue + allTimeChargeRevenue) / 100;
         const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
         const last30DaysInvoices = invoices.data.filter(invoice => invoice.status === 'paid' && new Date(invoice.created * 1000) >= thirtyDaysAgo);
         const last30DaysInvoiceRevenue = last30DaysInvoices.reduce((sum, invoice) => sum + (invoice.amount_paid || 0), 0);
-        const last30DaysCharges = charges.data.filter(charge => charge.status === 'succeeded' && new Date(charge.created * 1000) >= thirtyDaysAgo);
-        const last30DaysChargeRevenue = last30DaysCharges.reduce((sum, charge) => sum + charge.amount, 0);
+        const last30DaysStandaloneCharges = standaloneCharges.filter(charge => new Date(charge.created * 1000) >= thirtyDaysAgo);
+        const last30DaysChargeRevenue = last30DaysStandaloneCharges.reduce((sum, charge) => sum + charge.amount, 0);
         const last30DaysRevenue = (last30DaysInvoiceRevenue + last30DaysChargeRevenue) / 100;
         const cancelledSubs = subscriptions.data.filter(sub => sub.status === 'canceled').length;
         const churnRate = totalCustomers > 0 ? (cancelledSubs / totalCustomers) * 100 : 0;
@@ -409,9 +422,7 @@ router.get('/analytics', authenticateAdmin, async (req, res) => {
             timestamp: new Date(invoice.created * 1000).toISOString(),
             created: invoice.created
         }));
-        const recentChargeActivity = charges.data
-            .filter(charge => charge.status === 'succeeded')
-            .map(charge => ({
+        const recentChargeActivity = standaloneCharges.map(charge => ({
             id: charge.id,
             type: 'payment_received',
             description: `Charge of $${charge.amount / 100} from ${charge.billing_details?.email || 'customer'}`,

@@ -184,8 +184,22 @@ router.get('/customers/:customerId', authenticateAdmin, async (req, res) => {
       stripe.subscriptions.list({ customer: customerId, limit: 100 })
     ])
 
-    // Format order history from charges
-    const orderHistory = charges.data.map(charge => ({
+    // Deduplicate: Build a set of charge IDs from paid invoices
+    // Invoices have a 'charge' property linking them to the charge
+    const invoiceChargeIds = new Set(
+      invoices.data
+        .filter(inv => inv.charge && inv.status === 'paid')
+        .map(inv => typeof inv.charge === 'string' ? inv.charge : inv.charge?.id)
+        .filter(Boolean)
+    )
+
+    // Get standalone charges (not linked to invoices) to avoid double-counting
+    const standaloneCharges = charges.data.filter(
+      charge => !invoiceChargeIds.has(charge.id)
+    )
+
+    // Format order history from standalone charges only
+    const orderHistory = standaloneCharges.map(charge => ({
       id: charge.id,
       date: new Date(charge.created * 1000).toISOString(),
       amount: charge.amount / 100,
@@ -195,7 +209,7 @@ router.get('/customers/:customerId', authenticateAdmin, async (req, res) => {
       type: 'charge'
     }))
 
-    // Add invoice payments to order history
+    // Add all invoice payments to order history (these are the primary records)
     const invoiceOrders = invoices.data
       .filter(inv => inv.status === 'paid')
       .map(invoice => ({
@@ -208,7 +222,7 @@ router.get('/customers/:customerId', authenticateAdmin, async (req, res) => {
         type: 'invoice'
       }))
 
-    // Combine and sort by date
+    // Combine deduplicated orders and sort by date
     const allOrders = [...orderHistory, ...invoiceOrders].sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     )
@@ -367,12 +381,25 @@ router.get('/customers', authenticateAdmin, async (req, res) => {
       const customerInvoices = invoicesByCustomer.get(customerId) || []
       const customerCharges = chargesByCustomer.get(customerId) || []
 
-      // Calculate total spent from both invoices and charges
+      // Deduplicate: Get charge IDs from invoices to avoid double-counting
+      const invoiceChargeIds = new Set(
+        customerInvoices
+          .filter(inv => inv.charge && inv.status === 'paid')
+          .map(inv => typeof inv.charge === 'string' ? inv.charge : inv.charge?.id)
+          .filter(Boolean)
+      )
+
+      // Get standalone charges (not linked to invoices)
+      const standaloneCharges = customerCharges.filter(
+        charge => !invoiceChargeIds.has(charge.stripeId || charge.id)
+      )
+
+      // Calculate total spent from invoices + standalone charges only (deduplicated)
       const invoiceTotal = customerInvoices
         .filter(inv => inv.status === 'paid' && inv.amountPaid)
         .reduce((sum, invoice) => sum + invoice.amountPaid, 0)
 
-      const chargeTotal = customerCharges
+      const chargeTotal = standaloneCharges
         .filter(charge => charge.status === 'succeeded')
         .reduce((sum, charge) => sum + charge.amount, 0)
 
@@ -428,7 +455,22 @@ router.get('/analytics', authenticateAdmin, async (req, res) => {
 
     const totalCustomers = customers.data.length
 
-    // Calculate current month revenue from both charges AND invoices
+    // Deduplicate transactions: Build a set of charge IDs from invoices to avoid double-counting
+    // When an invoice is paid, Stripe creates both an invoice AND a charge
+    // We need to count each transaction only once
+    const invoiceChargeIds = new Set(
+      invoices.data
+        .filter(inv => inv.charge && inv.status === 'paid')
+        .map(inv => typeof inv.charge === 'string' ? inv.charge : inv.charge?.id)
+        .filter(Boolean)
+    )
+
+    // Get standalone charges (not linked to invoices)
+    const standaloneCharges = charges.data.filter(
+      charge => charge.status === 'succeeded' && !invoiceChargeIds.has(charge.id)
+    )
+
+    // Calculate current month revenue (invoices + standalone charges only)
     const currentMonth = new Date()
     currentMonth.setDate(1)
     currentMonth.setHours(0, 0, 0, 0)
@@ -438,33 +480,31 @@ router.get('/analytics', authenticateAdmin, async (req, res) => {
     )
     const monthlyInvoiceRevenue = monthlyInvoices.reduce((sum, invoice) => sum + (invoice.amount_paid || 0), 0)
 
-    const monthlyCharges = charges.data.filter(charge =>
-      charge.status === 'succeeded' && new Date(charge.created * 1000) >= currentMonth
+    const monthlyStandaloneCharges = standaloneCharges.filter(charge =>
+      new Date(charge.created * 1000) >= currentMonth
     )
-    const monthlyChargeRevenue = monthlyCharges.reduce((sum, charge) => sum + charge.amount, 0)
+    const monthlyChargeRevenue = monthlyStandaloneCharges.reduce((sum, charge) => sum + charge.amount, 0)
 
     const monthlyRevenue = (monthlyInvoiceRevenue + monthlyChargeRevenue) / 100
 
-    // Calculate all-time revenue from both charges AND invoices
+    // Calculate all-time revenue (invoices + standalone charges only)
     const allTimeInvoiceRevenue = invoices.data
       .filter(invoice => invoice.status === 'paid')
       .reduce((sum, invoice) => sum + (invoice.amount_paid || 0), 0)
-    const allTimeChargeRevenue = charges.data
-      .filter(charge => charge.status === 'succeeded')
-      .reduce((sum, charge) => sum + charge.amount, 0)
+    const allTimeChargeRevenue = standaloneCharges.reduce((sum, charge) => sum + charge.amount, 0)
     const allTimeRevenue = (allTimeInvoiceRevenue + allTimeChargeRevenue) / 100
 
-    // Calculate last 30 days revenue from both charges AND invoices
+    // Calculate last 30 days revenue (invoices + standalone charges only)
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
     const last30DaysInvoices = invoices.data.filter(invoice =>
       invoice.status === 'paid' && new Date(invoice.created * 1000) >= thirtyDaysAgo
     )
     const last30DaysInvoiceRevenue = last30DaysInvoices.reduce((sum, invoice) => sum + (invoice.amount_paid || 0), 0)
 
-    const last30DaysCharges = charges.data.filter(charge =>
-      charge.status === 'succeeded' && new Date(charge.created * 1000) >= thirtyDaysAgo
+    const last30DaysStandaloneCharges = standaloneCharges.filter(charge =>
+      new Date(charge.created * 1000) >= thirtyDaysAgo
     )
-    const last30DaysChargeRevenue = last30DaysCharges.reduce((sum, charge) => sum + charge.amount, 0)
+    const last30DaysChargeRevenue = last30DaysStandaloneCharges.reduce((sum, charge) => sum + charge.amount, 0)
 
     const last30DaysRevenue = (last30DaysInvoiceRevenue + last30DaysChargeRevenue) / 100
 
@@ -472,7 +512,7 @@ router.get('/analytics', authenticateAdmin, async (req, res) => {
     const cancelledSubs = subscriptions.data.filter(sub => sub.status === 'canceled').length
     const churnRate = totalCustomers > 0 ? (cancelledSubs / totalCustomers) * 100 : 0
 
-    // Get recent activity from both invoices AND charges, sorted by date
+    // Get recent activity (deduplicated - invoices + standalone charges only)
     const recentInvoiceActivity = invoices.data
       .filter(inv => inv.status === 'paid')
       .map(invoice => ({
@@ -483,15 +523,14 @@ router.get('/analytics', authenticateAdmin, async (req, res) => {
         created: invoice.created
       }))
 
-    const recentChargeActivity = charges.data
-      .filter(charge => charge.status === 'succeeded')
-      .map(charge => ({
-        id: charge.id,
-        type: 'payment_received' as const,
-        description: `Charge of $${charge.amount / 100} from ${charge.billing_details?.email || 'customer'}`,
-        timestamp: new Date(charge.created * 1000).toISOString(),
-        created: charge.created
-      }))
+    // Only include standalone charges (not linked to invoices) to avoid duplicates
+    const recentChargeActivity = standaloneCharges.map(charge => ({
+      id: charge.id,
+      type: 'payment_received' as const,
+      description: `Charge of $${charge.amount / 100} from ${charge.billing_details?.email || 'customer'}`,
+      timestamp: new Date(charge.created * 1000).toISOString(),
+      created: charge.created
+    }))
 
     // Combine, sort by date (most recent first), and take top 5
     const recentActivity = [...recentInvoiceActivity, ...recentChargeActivity]
