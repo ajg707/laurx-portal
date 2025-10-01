@@ -306,6 +306,7 @@ router.get('/customers', authenticateAdmin, async (req, res) => {
         stripe.charges.list({ limit: 100 })
       ])
 
+      // Map customers and collect those without email
       customersData = customersResponse.data.map((c: any) => ({
         stripeId: c.id,
         email: c.email,
@@ -313,6 +314,59 @@ router.get('/customers', authenticateAdmin, async (req, res) => {
         created: c.created,
         metadata: c.metadata || {}
       }))
+
+      // For customers without email, try to find email from payment methods or charges
+      const customersWithoutEmail = customersData.filter(c => !c.email)
+      console.log(`🔍 Found ${customersWithoutEmail.length} customers without email, checking payment methods and charges...`)
+
+      for (const customer of customersWithoutEmail) {
+        try {
+          let foundEmail = null
+          let foundName = null
+
+          // First, try payment methods
+          const paymentMethods = await stripe.paymentMethods.list({
+            customer: customer.stripeId,
+            limit: 1
+          })
+
+          if (paymentMethods.data.length > 0 && paymentMethods.data[0].billing_details?.email) {
+            foundEmail = paymentMethods.data[0].billing_details.email
+            foundName = paymentMethods.data[0].billing_details?.name
+            console.log(`  ✓ Found email ${foundEmail} in payment methods for ${customer.stripeId}`)
+          }
+
+          // If no email from payment methods, check charges
+          if (!foundEmail) {
+            const customerCharges = chargesResponse.data.filter((ch: any) => ch.customer === customer.stripeId)
+            for (const charge of customerCharges) {
+              if (charge.billing_details?.email) {
+                foundEmail = charge.billing_details.email
+                foundName = charge.billing_details?.name
+                console.log(`  ✓ Found email ${foundEmail} in charges for ${customer.stripeId}`)
+                break
+              }
+            }
+          }
+
+          // Update customer data if email was found
+          if (foundEmail) {
+            customer.email = foundEmail
+            customer.name = customer.name || foundName || foundEmail
+
+            // Update Stripe customer with the found email
+            await stripe.customers.update(customer.stripeId, {
+              email: foundEmail,
+              name: customer.name
+            })
+            console.log(`  ✓ Updated Stripe customer ${customer.stripeId} with email and name`)
+          } else {
+            console.log(`  ✗ No email found for customer ${customer.stripeId}`)
+          }
+        } catch (error) {
+          console.error(`  ✗ Error processing customer ${customer.stripeId}:`, error)
+        }
+      }
       subscriptionsData = subscriptionsResponse.data.map((s: any) => ({
         stripeId: s.id,
         customerId: typeof s.customer === 'string' ? s.customer : s.customer?.id,

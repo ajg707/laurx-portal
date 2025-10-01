@@ -276,6 +276,49 @@ router.get('/customers', authenticateAdmin, async (req, res) => {
                 created: c.created,
                 metadata: c.metadata || {}
             }));
+            const customersWithoutEmail = customersData.filter(c => !c.email);
+            console.log(`🔍 Found ${customersWithoutEmail.length} customers without email, checking payment methods and charges...`);
+            for (const customer of customersWithoutEmail) {
+                try {
+                    let foundEmail = null;
+                    let foundName = null;
+                    const paymentMethods = await stripe.paymentMethods.list({
+                        customer: customer.stripeId,
+                        limit: 1
+                    });
+                    if (paymentMethods.data.length > 0 && paymentMethods.data[0].billing_details?.email) {
+                        foundEmail = paymentMethods.data[0].billing_details.email;
+                        foundName = paymentMethods.data[0].billing_details?.name;
+                        console.log(`  ✓ Found email ${foundEmail} in payment methods for ${customer.stripeId}`);
+                    }
+                    if (!foundEmail) {
+                        const customerCharges = chargesResponse.data.filter((ch) => ch.customer === customer.stripeId);
+                        for (const charge of customerCharges) {
+                            if (charge.billing_details?.email) {
+                                foundEmail = charge.billing_details.email;
+                                foundName = charge.billing_details?.name;
+                                console.log(`  ✓ Found email ${foundEmail} in charges for ${customer.stripeId}`);
+                                break;
+                            }
+                        }
+                    }
+                    if (foundEmail) {
+                        customer.email = foundEmail;
+                        customer.name = customer.name || foundName || foundEmail;
+                        await stripe.customers.update(customer.stripeId, {
+                            email: foundEmail,
+                            name: customer.name
+                        });
+                        console.log(`  ✓ Updated Stripe customer ${customer.stripeId} with email and name`);
+                    }
+                    else {
+                        console.log(`  ✗ No email found for customer ${customer.stripeId}`);
+                    }
+                }
+                catch (error) {
+                    console.error(`  ✗ Error processing customer ${customer.stripeId}:`, error);
+                }
+            }
             subscriptionsData = subscriptionsResponse.data.map((s) => ({
                 stripeId: s.id,
                 customerId: typeof s.customer === 'string' ? s.customer : s.customer?.id,
