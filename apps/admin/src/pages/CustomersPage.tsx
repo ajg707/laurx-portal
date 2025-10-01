@@ -11,6 +11,7 @@ const CustomersPage = () => {
   const [couponModalCustomerId, setCouponModalCustomerId] = useState<string | null>(null)
   const [selectedCouponId, setSelectedCouponId] = useState('')
   const [applyingCoupon, setApplyingCoupon] = useState(false)
+  const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     fetchCustomers()
@@ -61,6 +62,33 @@ const CustomersPage = () => {
     } finally {
       setApplyingCoupon(false)
     }
+  }
+
+  const toggleCustomerSelection = (customerId: string) => {
+    const newSelection = new Set(selectedCustomerIds)
+    if (newSelection.has(customerId)) {
+      newSelection.delete(customerId)
+    } else {
+      newSelection.add(customerId)
+    }
+    setSelectedCustomerIds(newSelection)
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedCustomerIds.size === filteredCustomers.length) {
+      setSelectedCustomerIds(new Set())
+    } else {
+      setSelectedCustomerIds(new Set(filteredCustomers.map(c => c.id)))
+    }
+  }
+
+  const handleBulkAction = (action: string) => {
+    const selectedEmails = customers
+      .filter(c => selectedCustomerIds.has(c.id))
+      .map(c => c.email)
+      .join(', ')
+
+    alert(`${action} action for ${selectedCustomerIds.size} customers:\n${selectedEmails}`)
   }
 
   if (loading) {
@@ -179,10 +207,51 @@ const CustomersPage = () => {
         <div className="card-header">
           <h3 className="text-lg font-medium">Customer List</h3>
         </div>
+
+        {/* Bulk Actions Toolbar */}
+        {selectedCustomerIds.size > 0 && (
+          <div className="bg-blue-50 border-b border-blue-200 px-6 py-3 flex items-center justify-between">
+            <div className="flex items-center">
+              <span className="text-sm font-medium text-blue-900">
+                {selectedCustomerIds.size} customer{selectedCustomerIds.size > 1 ? 's' : ''} selected
+              </span>
+              <button
+                onClick={() => setSelectedCustomerIds(new Set())}
+                className="ml-4 text-sm text-blue-600 hover:text-blue-800"
+              >
+                Clear selection
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleBulkAction('Send Email')}
+                className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                <Mail className="h-4 w-4 inline mr-1" />
+                Send Email
+              </button>
+              <button
+                onClick={() => handleBulkAction('Export')}
+                className="px-3 py-1 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"
+              >
+                Export
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-4 py-3 text-left">
+                  <input
+                    type="checkbox"
+                    checked={selectedCustomerIds.size === filteredCustomers.length && filteredCustomers.length > 0}
+                    onChange={toggleSelectAll}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Customer
                 </th>
@@ -206,6 +275,14 @@ const CustomersPage = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {filteredCustomers.map((customer) => (
                 <tr key={customer.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-4">
+                    <input
+                      type="checkbox"
+                      checked={selectedCustomerIds.has(customer.id)}
+                      onChange={() => toggleCustomerSelection(customer.id)}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div>
                       <div className="text-sm font-medium text-gray-900">

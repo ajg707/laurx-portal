@@ -7,6 +7,9 @@ export declare const Collections: {
     CHARGES: string;
     COUPONS: string;
     WEBHOOK_EVENTS: string;
+    CUSTOMER_GROUPS: string;
+    EMAIL_CAMPAIGNS: string;
+    AUTOMATION_RULES: string;
 };
 export interface FirestoreCustomer {
     stripeId: string;

@@ -700,5 +700,127 @@ router.post('/email-config/validate', authenticateAdmin, async (req, res) => {
         res.status(500).json({ message: 'Failed to validate email configuration' });
     }
 });
+router.get('/groups', authenticateAdmin, async (req, res) => {
+    try {
+        const { getAllGroups } = await Promise.resolve().then(() => __importStar(require('../services/customerGroups')));
+        const groups = await getAllGroups();
+        res.json({ groups });
+    }
+    catch (error) {
+        console.error('Error fetching groups:', error);
+        res.status(500).json({ message: 'Failed to fetch customer groups' });
+    }
+});
+router.get('/groups/:groupId', authenticateAdmin, async (req, res) => {
+    try {
+        const { getGroup } = await Promise.resolve().then(() => __importStar(require('../services/customerGroups')));
+        const group = await getGroup(req.params.groupId);
+        if (!group) {
+            return res.status(404).json({ message: 'Group not found' });
+        }
+        res.json({ group });
+    }
+    catch (error) {
+        console.error('Error fetching group:', error);
+        res.status(500).json({ message: 'Failed to fetch group' });
+    }
+});
+router.post('/groups', authenticateAdmin, async (req, res) => {
+    try {
+        const { createGroup } = await Promise.resolve().then(() => __importStar(require('../services/customerGroups')));
+        const { name, description, type, customerIds, criteria } = req.body;
+        if (!name || !type) {
+            return res.status(400).json({ message: 'Name and type are required' });
+        }
+        if (type === 'static' && !Array.isArray(customerIds)) {
+            return res.status(400).json({ message: 'Static groups require customerIds array' });
+        }
+        if (type === 'dynamic' && !criteria) {
+            return res.status(400).json({ message: 'Dynamic groups require criteria' });
+        }
+        const group = await createGroup({
+            name,
+            description: description || '',
+            type,
+            customerIds: type === 'static' ? customerIds : undefined,
+            criteria: type === 'dynamic' ? criteria : undefined,
+            createdBy: req.user.email
+        });
+        res.json({ group });
+    }
+    catch (error) {
+        console.error('Error creating group:', error);
+        res.status(500).json({ message: 'Failed to create group' });
+    }
+});
+router.put('/groups/:groupId', authenticateAdmin, async (req, res) => {
+    try {
+        const { updateGroup } = await Promise.resolve().then(() => __importStar(require('../services/customerGroups')));
+        const { name, description, customerIds, criteria } = req.body;
+        await updateGroup(req.params.groupId, {
+            ...(name && { name }),
+            ...(description !== undefined && { description }),
+            ...(customerIds && { customerIds }),
+            ...(criteria && { criteria })
+        });
+        res.json({ message: 'Group updated successfully' });
+    }
+    catch (error) {
+        console.error('Error updating group:', error);
+        res.status(500).json({ message: 'Failed to update group' });
+    }
+});
+router.delete('/groups/:groupId', authenticateAdmin, async (req, res) => {
+    try {
+        const { deleteGroup } = await Promise.resolve().then(() => __importStar(require('../services/customerGroups')));
+        await deleteGroup(req.params.groupId);
+        res.json({ message: 'Group deleted successfully' });
+    }
+    catch (error) {
+        console.error('Error deleting group:', error);
+        res.status(500).json({ message: 'Failed to delete group' });
+    }
+});
+router.get('/groups/:groupId/customers', authenticateAdmin, async (req, res) => {
+    try {
+        const { getGroupCustomers } = await Promise.resolve().then(() => __importStar(require('../services/customerGroups')));
+        const customerIds = await getGroupCustomers(req.params.groupId);
+        res.json({ customerIds, count: customerIds.length });
+    }
+    catch (error) {
+        console.error('Error fetching group customers:', error);
+        res.status(500).json({ message: 'Failed to fetch group customers' });
+    }
+});
+router.post('/groups/:groupId/customers', authenticateAdmin, async (req, res) => {
+    try {
+        const { addCustomersToGroup } = await Promise.resolve().then(() => __importStar(require('../services/customerGroups')));
+        const { customerIds } = req.body;
+        if (!Array.isArray(customerIds)) {
+            return res.status(400).json({ message: 'customerIds must be an array' });
+        }
+        await addCustomersToGroup(req.params.groupId, customerIds);
+        res.json({ message: 'Customers added to group successfully' });
+    }
+    catch (error) {
+        console.error('Error adding customers to group:', error);
+        res.status(500).json({ message: error instanceof Error ? error.message : 'Failed to add customers to group' });
+    }
+});
+router.delete('/groups/:groupId/customers', authenticateAdmin, async (req, res) => {
+    try {
+        const { removeCustomersFromGroup } = await Promise.resolve().then(() => __importStar(require('../services/customerGroups')));
+        const { customerIds } = req.body;
+        if (!Array.isArray(customerIds)) {
+            return res.status(400).json({ message: 'customerIds must be an array' });
+        }
+        await removeCustomersFromGroup(req.params.groupId, customerIds);
+        res.json({ message: 'Customers removed from group successfully' });
+    }
+    catch (error) {
+        console.error('Error removing customers from group:', error);
+        res.status(500).json({ message: error instanceof Error ? error.message : 'Failed to remove customers from group' });
+    }
+});
 exports.default = router;
 //# sourceMappingURL=admin.js.map

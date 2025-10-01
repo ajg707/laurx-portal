@@ -34,7 +34,10 @@ export const Collections = {
   INVOICES: 'invoices',
   CHARGES: 'charges',
   COUPONS: 'coupons',
-  WEBHOOK_EVENTS: 'webhook_events'
+  WEBHOOK_EVENTS: 'webhook_events',
+  CUSTOMER_GROUPS: 'customer_groups',
+  EMAIL_CAMPAIGNS: 'email_campaigns',
+  AUTOMATION_RULES: 'automation_rules'
 }
 
 // Customer data structure in Firestore

@@ -12,7 +12,8 @@
       "Bash(curl:*)",
       "Bash(npm run build:*)",
       "Bash(npm run dev:*)",
-      "Bash(firebase deploy:*)"
+      "Bash(firebase deploy:*)",
+      "Bash(npx tsx:*)"
     ],
     "deny": [],
     "ask": []

@@ -264,6 +264,212 @@ router.get('/products', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch products' });
     }
 });
+router.get('/order-history', authenticateToken, async (req, res) => {
+    try {
+        const userEmail = req.user.email;
+        const Stripe = (await Promise.resolve().then(() => __importStar(require('stripe')))).default;
+        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2023-10-16' });
+        const customers = await stripe.customers.list({
+            email: userEmail,
+            limit: 1
+        });
+        if (customers.data.length === 0) {
+            const allCoupons = await stripe.coupons.list({ limit: 100 });
+            const availableCoupons = allCoupons.data
+                .filter(coupon => coupon.valid)
+                .map(coupon => ({
+                id: coupon.id,
+                code: coupon.name || coupon.id,
+                percentOff: coupon.percent_off,
+                amountOff: coupon.amount_off ? coupon.amount_off / 100 : null,
+                duration: coupon.duration,
+                durationInMonths: coupon.duration_in_months,
+                redeemBy: coupon.redeem_by ? new Date(coupon.redeem_by * 1000).toISOString() : null
+            }));
+            return res.json({
+                orders: [],
+                subscriptions: [],
+                appliedCoupons: [],
+                availableCoupons,
+                totalSpent: 0
+            });
+        }
+        const customer = customers.data[0];
+        const [charges, invoices, subscriptions] = await Promise.all([
+            stripe.charges.list({ customer: customer.id, limit: 100 }),
+            stripe.invoices.list({ customer: customer.id, limit: 100 }),
+            stripe.subscriptions.list({ customer: customer.id, limit: 100 })
+        ]);
+        const orders = [
+            ...charges.data.map(charge => ({
+                id: charge.id,
+                date: new Date(charge.created * 1000).toISOString(),
+                amount: charge.amount / 100,
+                currency: charge.currency,
+                status: charge.status,
+                description: charge.description || 'Payment',
+                receiptUrl: charge.receipt_url,
+                type: 'charge'
+            })),
+            ...invoices.data.map(invoice => ({
+                id: invoice.id,
+                date: new Date(invoice.created * 1000).toISOString(),
+                amount: (invoice.amount_paid || 0) / 100,
+                currency: invoice.currency || 'usd',
+                status: invoice.status || 'unknown',
+                description: invoice.description || `Invoice ${invoice.number || ''}`,
+                receiptUrl: invoice.hosted_invoice_url,
+                invoiceNumber: invoice.number,
+                type: 'invoice'
+            }))
+        ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        const appliedCoupons = subscriptions.data
+            .filter(sub => sub.discount?.coupon)
+            .map(sub => ({
+            subscriptionId: sub.id,
+            couponId: sub.discount.coupon.id,
+            couponCode: sub.discount.coupon.name || sub.discount.coupon.id,
+            percentOff: sub.discount.coupon.percent_off,
+            amountOff: sub.discount.coupon.amount_off ? sub.discount.coupon.amount_off / 100 : null,
+            duration: sub.discount.coupon.duration,
+            validUntil: sub.discount.end ? new Date(sub.discount.end * 1000).toISOString() : null
+        }));
+        const allCoupons = await stripe.coupons.list({ limit: 100 });
+        const availableCoupons = allCoupons.data
+            .filter(coupon => coupon.valid)
+            .map(coupon => ({
+            id: coupon.id,
+            code: coupon.name || coupon.id,
+            percentOff: coupon.percent_off,
+            amountOff: coupon.amount_off ? coupon.amount_off / 100 : null,
+            duration: coupon.duration,
+            durationInMonths: coupon.duration_in_months,
+            redeemBy: coupon.redeem_by ? new Date(coupon.redeem_by * 1000).toISOString() : null
+        }));
+        const totalSpent = orders.reduce((sum, order) => {
+            if (order.status === 'succeeded' || order.status === 'paid') {
+                return sum + order.amount;
+            }
+            return sum;
+        }, 0);
+        res.json({
+            orders,
+            subscriptions: subscriptions.data.map(sub => ({
+                id: sub.id,
+                status: sub.status,
+                currentPeriodEnd: new Date(sub.current_period_end * 1000).toISOString(),
+                cancelAtPeriodEnd: sub.cancel_at_period_end,
+                plan: sub.items.data[0]?.price?.nickname || 'Subscription',
+                amount: (sub.items.data[0]?.price?.unit_amount || 0) / 100,
+                interval: sub.items.data[0]?.price?.recurring?.interval
+            })),
+            appliedCoupons,
+            availableCoupons,
+            totalSpent
+        });
+    }
+    catch (error) {
+        console.error('Error fetching order history:', error);
+        res.status(500).json({ error: 'Failed to fetch order history' });
+    }
+});
+router.post('/support/request', authenticateToken, async (req, res) => {
+    try {
+        const { type, subject, message, subscriptionId, orderId } = req.body;
+        const userEmail = req.user.email;
+        if (!type || !subject || !message) {
+            return res.status(400).json({ error: 'Type, subject, and message are required' });
+        }
+        const validTypes = ['refund', 'cancellation', 'general'];
+        if (!validTypes.includes(type)) {
+            return res.status(400).json({ error: 'Invalid request type' });
+        }
+        const { sendEmail } = await Promise.resolve().then(() => __importStar(require('../services/emailService')));
+        const supportEmail = process.env.SUPPORT_EMAIL || 'support@mylaurelrose.com';
+        let emailSubject = '';
+        let emailBody = '';
+        switch (type) {
+            case 'refund':
+                emailSubject = `Refund Request from ${userEmail}`;
+                emailBody = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #7c3aed;">Refund Request</h2>
+            <p><strong>Customer:</strong> ${userEmail}</p>
+            <p><strong>Subject:</strong> ${subject}</p>
+            ${orderId ? `<p><strong>Order ID:</strong> ${orderId}</p>` : ''}
+            <div style="background: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
+              <p style="margin: 0;"><strong>Message:</strong></p>
+              <p style="margin: 10px 0 0 0;">${message}</p>
+            </div>
+            <p style="color: #6b7280; font-size: 14px;">This is an automated notification from the customer portal.</p>
+          </div>
+        `;
+                break;
+            case 'cancellation':
+                emailSubject = `Cancellation Request from ${userEmail}`;
+                emailBody = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #7c3aed;">Subscription Cancellation Request</h2>
+            <p><strong>Customer:</strong> ${userEmail}</p>
+            <p><strong>Subject:</strong> ${subject}</p>
+            ${subscriptionId ? `<p><strong>Subscription ID:</strong> ${subscriptionId}</p>` : ''}
+            <div style="background: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
+              <p style="margin: 0;"><strong>Reason:</strong></p>
+              <p style="margin: 10px 0 0 0;">${message}</p>
+            </div>
+            <p style="color: #6b7280; font-size: 14px;">This is an automated notification from the customer portal.</p>
+          </div>
+        `;
+                break;
+            case 'general':
+                emailSubject = `Support Request from ${userEmail}`;
+                emailBody = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #7c3aed;">Support Request</h2>
+            <p><strong>Customer:</strong> ${userEmail}</p>
+            <p><strong>Subject:</strong> ${subject}</p>
+            <div style="background: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
+              <p style="margin: 0;"><strong>Message:</strong></p>
+              <p style="margin: 10px 0 0 0;">${message}</p>
+            </div>
+            <p style="color: #6b7280; font-size: 14px;">This is an automated notification from the customer portal.</p>
+          </div>
+        `;
+                break;
+        }
+        await sendEmail({
+            to: supportEmail,
+            subject: emailSubject,
+            html: emailBody
+        });
+        await sendEmail({
+            to: userEmail,
+            subject: `We received your ${type} request`,
+            html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <h2 style="color: #7c3aed;">Request Received</h2>
+          <p>Hi there,</p>
+          <p>We've received your ${type} request and our support team will review it shortly.</p>
+          <div style="background: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 0;"><strong>Your request:</strong></p>
+            <p style="margin: 10px 0;"><strong>Subject:</strong> ${subject}</p>
+            <p style="margin: 0;">${message}</p>
+          </div>
+          <p>You should hear back from us within 24-48 hours.</p>
+          <p style="margin-top: 30px;">Best regards,<br><strong>The Laurel Rose Team</strong></p>
+        </div>
+      `
+        });
+        res.json({
+            success: true,
+            message: 'Support request submitted successfully'
+        });
+    }
+    catch (error) {
+        console.error('Error submitting support request:', error);
+        res.status(500).json({ error: 'Failed to submit support request' });
+    }
+});
 router.get('/health', (req, res) => {
     res.json({
         status: 'OK',
