@@ -419,6 +419,7 @@ router.get('/analytics', authenticateAdmin, async (req, res) => {
     const customers = await stripe.customers.list({ limit: 100 })
     const subscriptions = await stripe.subscriptions.list({ limit: 100 })
     const invoices = await stripe.invoices.list({ limit: 100 })
+    const charges = await stripe.charges.list({ limit: 100 })
 
     // Count active subscriptions (including trialing, active, past_due)
     const activeSubscriptions = subscriptions.data.filter(sub =>
@@ -427,43 +428,76 @@ router.get('/analytics', authenticateAdmin, async (req, res) => {
 
     const totalCustomers = customers.data.length
 
-    // Calculate current month revenue
+    // Calculate current month revenue from both charges AND invoices
     const currentMonth = new Date()
     currentMonth.setDate(1)
     currentMonth.setHours(0, 0, 0, 0)
+
     const monthlyInvoices = invoices.data.filter(invoice =>
       invoice.status === 'paid' && new Date(invoice.created * 1000) >= currentMonth
     )
-    const monthlyRevenue = monthlyInvoices.reduce((sum, invoice) => sum + (invoice.amount_paid || 0), 0) / 100
+    const monthlyInvoiceRevenue = monthlyInvoices.reduce((sum, invoice) => sum + (invoice.amount_paid || 0), 0)
 
-    // Calculate all-time revenue
-    const allTimeRevenue = invoices.data
+    const monthlyCharges = charges.data.filter(charge =>
+      charge.status === 'succeeded' && new Date(charge.created * 1000) >= currentMonth
+    )
+    const monthlyChargeRevenue = monthlyCharges.reduce((sum, charge) => sum + charge.amount, 0)
+
+    const monthlyRevenue = (monthlyInvoiceRevenue + monthlyChargeRevenue) / 100
+
+    // Calculate all-time revenue from both charges AND invoices
+    const allTimeInvoiceRevenue = invoices.data
       .filter(invoice => invoice.status === 'paid')
-      .reduce((sum, invoice) => sum + (invoice.amount_paid || 0), 0) / 100
+      .reduce((sum, invoice) => sum + (invoice.amount_paid || 0), 0)
+    const allTimeChargeRevenue = charges.data
+      .filter(charge => charge.status === 'succeeded')
+      .reduce((sum, charge) => sum + charge.amount, 0)
+    const allTimeRevenue = (allTimeInvoiceRevenue + allTimeChargeRevenue) / 100
 
-    // Calculate last 30 days revenue
+    // Calculate last 30 days revenue from both charges AND invoices
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
     const last30DaysInvoices = invoices.data.filter(invoice =>
       invoice.status === 'paid' && new Date(invoice.created * 1000) >= thirtyDaysAgo
     )
-    const last30DaysRevenue = last30DaysInvoices.reduce((sum, invoice) => sum + (invoice.amount_paid || 0), 0) / 100
+    const last30DaysInvoiceRevenue = last30DaysInvoices.reduce((sum, invoice) => sum + (invoice.amount_paid || 0), 0)
+
+    const last30DaysCharges = charges.data.filter(charge =>
+      charge.status === 'succeeded' && new Date(charge.created * 1000) >= thirtyDaysAgo
+    )
+    const last30DaysChargeRevenue = last30DaysCharges.reduce((sum, charge) => sum + charge.amount, 0)
+
+    const last30DaysRevenue = (last30DaysInvoiceRevenue + last30DaysChargeRevenue) / 100
 
     // Calculate churn rate (simplified)
     const cancelledSubs = subscriptions.data.filter(sub => sub.status === 'canceled').length
     const churnRate = totalCustomers > 0 ? (cancelledSubs / totalCustomers) * 100 : 0
 
-    // Get recent invoices for activity
-    const recentInvoices = invoices.data
+    // Get recent activity from both invoices AND charges, sorted by date
+    const recentInvoiceActivity = invoices.data
       .filter(inv => inv.status === 'paid')
+      .map(invoice => ({
+        id: invoice.id,
+        type: 'payment_received' as const,
+        description: `Payment of $${(invoice.amount_paid || 0) / 100} from ${invoice.customer_email || 'customer'}`,
+        timestamp: new Date(invoice.created * 1000).toISOString(),
+        created: invoice.created
+      }))
+
+    const recentChargeActivity = charges.data
+      .filter(charge => charge.status === 'succeeded')
+      .map(charge => ({
+        id: charge.id,
+        type: 'payment_received' as const,
+        description: `Charge of $${charge.amount / 100} from ${charge.billing_details?.email || 'customer'}`,
+        timestamp: new Date(charge.created * 1000).toISOString(),
+        created: charge.created
+      }))
+
+    // Combine, sort by date (most recent first), and take top 5
+    const recentActivity = [...recentInvoiceActivity, ...recentChargeActivity]
       .sort((a, b) => b.created - a.created)
       .slice(0, 5)
-
-    const recentActivity = recentInvoices.map(invoice => ({
-      id: invoice.id,
-      type: 'payment_received' as const,
-      description: `Payment of $${(invoice.amount_paid || 0) / 100} from ${invoice.customer_email || 'customer'}`,
-      timestamp: new Date(invoice.created * 1000).toISOString()
-    }))
+      .map(({ created, ...rest }) => rest) // Remove the created field used for sorting
 
     const analytics = {
       totalCustomers,

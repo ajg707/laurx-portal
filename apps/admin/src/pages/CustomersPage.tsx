@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useAdmin, CustomerDetails } from '../contexts/AdminContext'
-import { Search, Mail, DollarSign, Calendar, Filter, X, ExternalLink } from 'lucide-react'
+import { Search, Mail, DollarSign, Calendar, X, ExternalLink } from 'lucide-react'
 
 const CustomersPage = () => {
   const { customers, fetchCustomers, fetchCustomerDetails, coupons, fetchCoupons, applyCouponToCustomer, loading } = useAdmin()
   const [searchTerm, setSearchTerm] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'churned'>('all')
+  const [dateFilter, setDateFilter] = useState<'all' | 'day' | 'week' | 'month' | 'custom'>('all')
+  const [customStartDate, setCustomStartDate] = useState('')
+  const [customEndDate, setCustomEndDate] = useState('')
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerDetails | null>(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
   const [couponModalCustomerId, setCouponModalCustomerId] = useState<string | null>(null)
@@ -18,11 +20,60 @@ const CustomersPage = () => {
     fetchCoupons()
   }, [])
 
+  const getDateRangeFilter = () => {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+
+    switch (dateFilter) {
+      case 'day':
+        return { start: today, end: now }
+      case 'week':
+        const weekAgo = new Date(today)
+        weekAgo.setDate(weekAgo.getDate() - 7)
+        return { start: weekAgo, end: now }
+      case 'month':
+        const monthAgo = new Date(today)
+        monthAgo.setDate(monthAgo.getDate() - 30)
+        return { start: monthAgo, end: now }
+      case 'custom':
+        if (customStartDate && customEndDate) {
+          return {
+            start: new Date(customStartDate),
+            end: new Date(customEndDate + 'T23:59:59')
+          }
+        }
+        return null
+      default:
+        return null
+    }
+  }
+
   const filteredCustomers = customers.filter(customer => {
     const matchesSearch = (customer.email?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
                          (customer.name?.toLowerCase() || '').includes(searchTerm.toLowerCase())
-    const matchesStatus = statusFilter === 'all' || customer.status === statusFilter
-    return matchesSearch && matchesStatus
+
+    // Date range filter
+    if (dateFilter !== 'all') {
+      const range = getDateRangeFilter()
+      if (range && customer.lastOrderDate) {
+        const lastOrder = new Date(customer.lastOrderDate)
+        if (lastOrder < range.start || lastOrder > range.end) {
+          return false
+        }
+      } else if (range && !customer.lastOrderDate) {
+        return false // Exclude customers with no orders when filtering by date
+      }
+    }
+
+    return matchesSearch
+  })
+
+  // Sort by last payment date (most recent first)
+  const sortedCustomers = [...filteredCustomers].sort((a, b) => {
+    if (!a.lastOrderDate && !b.lastOrderDate) return 0
+    if (!a.lastOrderDate) return 1 // Customers with no orders go to bottom
+    if (!b.lastOrderDate) return -1
+    return new Date(b.lastOrderDate).getTime() - new Date(a.lastOrderDate).getTime()
   })
 
   const getStatusBadge = (status: string) => {
@@ -75,10 +126,10 @@ const CustomersPage = () => {
   }
 
   const toggleSelectAll = () => {
-    if (selectedCustomerIds.size === filteredCustomers.length) {
+    if (selectedCustomerIds.size === sortedCustomers.length) {
       setSelectedCustomerIds(new Set())
     } else {
-      setSelectedCustomerIds(new Set(filteredCustomers.map(c => c.id)))
+      setSelectedCustomerIds(new Set(sortedCustomers.map(c => c.id)))
     }
   }
 
@@ -126,22 +177,47 @@ const CustomersPage = () => {
           />
         </div>
         <div className="flex items-center gap-2">
-          <Filter className="h-4 w-4 text-gray-400" />
+          <Calendar className="h-4 w-4 text-gray-400" />
           <select
             className="select"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as any)}
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value as any)}
           >
-            <option value="all">All Status</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="churned">Churned</option>
+            <option value="all">All Time</option>
+            <option value="day">Last 24 Hours</option>
+            <option value="week">Last 7 Days</option>
+            <option value="month">Last 30 Days</option>
+            <option value="custom">Custom Range</option>
           </select>
         </div>
       </div>
 
+      {/* Custom Date Range */}
+      {dateFilter === 'custom' && (
+        <div className="flex gap-4 items-center">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+            <input
+              type="date"
+              className="input"
+              value={customStartDate}
+              onChange={(e) => setCustomStartDate(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+            <input
+              type="date"
+              className="input"
+              value={customEndDate}
+              onChange={(e) => setCustomEndDate(e.target.value)}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="card">
           <div className="card-content">
             <div className="flex items-center justify-between">
@@ -159,7 +235,7 @@ const CustomersPage = () => {
           <div className="card-content">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Active</p>
+                <p className="text-sm font-medium text-gray-600">Active Subscribers</p>
                 <p className="text-2xl font-bold text-green-600">
                   {customers.filter(c => c.status === 'active').length}
                 </p>
@@ -174,28 +250,13 @@ const CustomersPage = () => {
           <div className="card-content">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Inactive</p>
-                <p className="text-2xl font-bold text-yellow-600">
-                  {customers.filter(c => c.status === 'inactive').length}
+                <p className="text-sm font-medium text-gray-600">Filtered Results</p>
+                <p className="text-2xl font-bold text-purple-600">
+                  {sortedCustomers.length}
                 </p>
               </div>
-              <div className="h-8 w-8 bg-yellow-100 rounded-full flex items-center justify-center">
-                <Calendar className="h-4 w-4 text-yellow-600" />
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="card">
-          <div className="card-content">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Churned</p>
-                <p className="text-2xl font-bold text-red-600">
-                  {customers.filter(c => c.status === 'churned').length}
-                </p>
-              </div>
-              <div className="h-8 w-8 bg-red-100 rounded-full flex items-center justify-center">
-                <Mail className="h-4 w-4 text-red-600" />
+              <div className="h-8 w-8 bg-purple-100 rounded-full flex items-center justify-center">
+                <Calendar className="h-4 w-4 text-purple-600" />
               </div>
             </div>
           </div>
@@ -247,7 +308,7 @@ const CustomersPage = () => {
                 <th className="px-4 py-3 text-left">
                   <input
                     type="checkbox"
-                    checked={selectedCustomerIds.size === filteredCustomers.length && filteredCustomers.length > 0}
+                    checked={selectedCustomerIds.size === sortedCustomers.length && sortedCustomers.length > 0}
                     onChange={toggleSelectAll}
                     className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                   />
@@ -273,7 +334,7 @@ const CustomersPage = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredCustomers.map((customer) => (
+              {sortedCustomers.map((customer) => (
                 <tr key={customer.id} className="hover:bg-gray-50">
                   <td className="px-4 py-4">
                     <input
@@ -337,7 +398,7 @@ const CustomersPage = () => {
           <Mail className="mx-auto h-12 w-12 text-gray-400" />
           <h3 className="mt-2 text-sm font-medium text-gray-900">No customers found</h3>
           <p className="mt-1 text-sm text-gray-500">
-            {searchTerm || statusFilter !== 'all'
+            {searchTerm || dateFilter !== 'all'
               ? 'Try adjusting your search or filter criteria.'
               : 'Your customers will appear here once they sign up.'
             }

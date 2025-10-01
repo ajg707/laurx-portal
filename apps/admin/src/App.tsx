@@ -5,6 +5,7 @@ import Layout from './components/Layout'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import CustomersPage from './pages/CustomersPage'
+import GroupsPage from './pages/GroupsPage'
 import EmailCampaignsPage from './pages/EmailCampaignsPage'
 import AutomationPage from './pages/AutomationPage'
 import CouponsPage from './pages/CouponsPage'
@@ -21,6 +22,7 @@ function App() {
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="customers" element={<CustomersPage />} />
+            <Route path="groups" element={<GroupsPage />} />
             <Route path="email-campaigns" element={<EmailCampaignsPage />} />
             <Route path="automation" element={<AutomationPage />} />
             <Route path="coupons" element={<CouponsPage />} />

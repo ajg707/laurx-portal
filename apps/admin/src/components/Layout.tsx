@@ -1,15 +1,16 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { 
-  LayoutDashboard, 
-  Users, 
-  Mail, 
-  Zap, 
-  Tag, 
-  BarChart3, 
+import {
+  LayoutDashboard,
+  Users,
+  Mail,
+  Zap,
+  Tag,
+  BarChart3,
   LogOut,
   Menu,
-  X
+  X,
+  Folder
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -27,6 +28,7 @@ const Layout = () => {
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Customers', href: '/customers', icon: Users },
+    { name: 'Groups', href: '/groups', icon: Folder },
     { name: 'Email Campaigns', href: '/email-campaigns', icon: Mail },
     { name: 'Automation', href: '/automation', icon: Zap },
     { name: 'Coupons', href: '/coupons', icon: Tag },
