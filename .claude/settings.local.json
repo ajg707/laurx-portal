@@ -7,7 +7,11 @@
       "Bash(git remote add:*)",
       "Bash(git branch:*)",
       "Bash(git push:*)",
-      "Bash(git remote set-url:*)"
+      "Bash(git remote set-url:*)",
+      "Bash(curl -s https://laurx-api.onrender.com/auth/send-code -X POST -H \"Content-Type: application/json\" -d '{\"\"email\"\":\"\"test@example.com\"\"}')",
+      "Bash(curl:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run dev:*)"
     ],
     "deny": [],
     "ask": []
