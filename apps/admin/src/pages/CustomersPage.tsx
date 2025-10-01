@@ -12,8 +12,8 @@ const CustomersPage = () => {
   }, [])
 
   const filteredCustomers = customers.filter(customer => {
-    const matchesSearch = customer.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         customer.name.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesSearch = (customer.email?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+                         (customer.name?.toLowerCase() || '').includes(searchTerm.toLowerCase())
     const matchesStatus = statusFilter === 'all' || customer.status === statusFilter
     return matchesSearch && matchesStatus
   })

@@ -175,10 +175,11 @@ router.get('/customers', authenticateAdmin, async (req, res) => {
     }
 
     // Fetch all data in parallel (much faster than per-customer)
-    const [customersResponse, subscriptionsResponse, invoicesResponse] = await Promise.all([
+    const [customersResponse, subscriptionsResponse, invoicesResponse, chargesResponse] = await Promise.all([
       stripe.customers.list({ limit: 100 }),
       stripe.subscriptions.list({ limit: 100 }),
-      stripe.invoices.list({ limit: 100 })
+      stripe.invoices.list({ limit: 100 }),
+      stripe.charges.list({ limit: 100 })
     ])
 
     // Group subscriptions and invoices by customer
@@ -202,14 +203,32 @@ router.get('/customers', authenticateAdmin, async (req, res) => {
       }
     })
 
+    const chargesByCustomer = new Map<string, typeof chargesResponse.data>()
+    chargesResponse.data.forEach(charge => {
+      const customerId = charge.customer as string
+      if (customerId) {
+        const existing = chargesByCustomer.get(customerId) || []
+        existing.push(charge)
+        chargesByCustomer.set(customerId, existing)
+      }
+    })
+
     // Build customer objects
     const customersWithSubscriptions = customersResponse.data.map(customer => {
       const customerSubs = subscriptionsByCustomer.get(customer.id) || []
       const customerInvoices = invoicesByCustomer.get(customer.id) || []
+      const customerCharges = chargesByCustomer.get(customer.id) || []
 
-      const totalSpent = customerInvoices
-        .filter(inv => inv.status === 'paid')
-        .reduce((sum, invoice) => sum + (invoice.amount_paid || 0), 0) / 100
+      // Calculate total spent from both invoices and charges
+      const invoiceTotal = customerInvoices
+        .filter(inv => inv.status === 'paid' && inv.amount_paid)
+        .reduce((sum, invoice) => sum + invoice.amount_paid, 0)
+
+      const chargeTotal = customerCharges
+        .filter(charge => charge.status === 'succeeded' && charge.paid)
+        .reduce((sum, charge) => sum + charge.amount, 0)
+
+      const totalSpent = (invoiceTotal + chargeTotal) / 100
 
       const hasActiveSubscription = customerSubs.some(sub =>
         ['active', 'trialing', 'past_due'].includes(sub.status)
