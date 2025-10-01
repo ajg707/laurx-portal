@@ -439,6 +439,11 @@ router.post('/customers/:customerId/apply-coupon', authenticateAdmin, async (req
     try {
         const { customerId } = req.params;
         const { couponId } = req.body;
+        const customer = await stripe.customers.retrieve(customerId);
+        if (!customer || customer.deleted) {
+            return res.status(404).json({ message: 'Customer not found' });
+        }
+        const coupon = await stripe.coupons.retrieve(couponId);
         const subscriptions = await stripe.subscriptions.list({
             customer: customerId,
             status: 'active',
@@ -451,7 +456,37 @@ router.post('/customers/:customerId/apply-coupon', authenticateAdmin, async (req
         await stripe.subscriptions.update(subscription.id, {
             coupon: couponId
         });
-        res.json({ message: 'Coupon applied successfully' });
+        const customerEmail = customer.email;
+        const customerName = customer.name || 'Valued Customer';
+        const discountText = coupon.percent_off
+            ? `${coupon.percent_off}% off`
+            : `$${((coupon.amount_off || 0) / 100).toFixed(2)} off`;
+        await (0, emailService_1.sendEmail)({
+            to: customerEmail,
+            subject: 'Special Discount Applied to Your Subscription!',
+            html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <h2 style="color: #7c3aed;">Great News, ${customerName}!</h2>
+          <p>We've applied a special discount to your subscription:</p>
+          <div style="background: linear-gradient(135deg, #7c3aed 0%, #9333ea 100%); padding: 30px; text-align: center; border-radius: 10px; margin: 20px 0;">
+            <p style="color: white; font-size: 18px; margin: 0;">Your Discount</p>
+            <p style="color: white; font-size: 36px; font-weight: bold; margin: 10px 0;">${discountText}</p>
+            ${coupon.name ? `<p style="color: #e9d5ff; font-size: 16px; margin: 0;">${coupon.name}</p>` : ''}
+          </div>
+          ${coupon.duration === 'forever'
+                ? '<p style="color: #16a34a; font-weight: bold;">This discount will apply to all future invoices!</p>'
+                : coupon.duration === 'repeating'
+                    ? `<p style="color: #16a34a; font-weight: bold;">This discount will apply for ${coupon.duration_in_months} months.</p>`
+                    : '<p style="color: #16a34a; font-weight: bold;">This discount will apply to your next invoice.</p>'}
+          <p>You'll see this discount reflected on your next billing statement.</p>
+          <p style="color: #666; font-size: 12px; margin-top: 30px;">
+            If you have any questions about this discount, please don't hesitate to contact us.
+          </p>
+          <p style="color: #666; font-size: 12px;">Thank you for being a valued customer!</p>
+        </div>
+      `
+        });
+        res.json({ message: 'Coupon applied and customer notified successfully' });
     }
     catch (error) {
         console.error('Error applying coupon:', error);

@@ -3,14 +3,18 @@ import { useAdmin, CustomerDetails } from '../contexts/AdminContext'
 import { Search, Mail, DollarSign, Calendar, Filter, X, ExternalLink } from 'lucide-react'
 
 const CustomersPage = () => {
-  const { customers, fetchCustomers, fetchCustomerDetails, loading } = useAdmin()
+  const { customers, fetchCustomers, fetchCustomerDetails, coupons, fetchCoupons, applyCouponToCustomer, loading } = useAdmin()
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'churned'>('all')
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerDetails | null>(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
+  const [couponModalCustomerId, setCouponModalCustomerId] = useState<string | null>(null)
+  const [selectedCouponId, setSelectedCouponId] = useState('')
+  const [applyingCoupon, setApplyingCoupon] = useState(false)
 
   useEffect(() => {
     fetchCustomers()
+    fetchCoupons()
   }, [])
 
   const filteredCustomers = customers.filter(customer => {
@@ -38,6 +42,24 @@ const CustomersPage = () => {
       console.error('Failed to fetch customer details:', error)
     } finally {
       setDetailsLoading(false)
+    }
+  }
+
+  const handleApplyCoupon = async () => {
+    if (!couponModalCustomerId || !selectedCouponId) return
+
+    setApplyingCoupon(true)
+    try {
+      await applyCouponToCustomer(couponModalCustomerId, selectedCouponId)
+      alert('Coupon applied and customer notified!')
+      setCouponModalCustomerId(null)
+      setSelectedCouponId('')
+      // Refresh customer list to show updated data
+      await fetchCustomers()
+    } catch (error) {
+      alert('Failed to apply coupon: ' + (error as Error).message)
+    } finally {
+      setApplyingCoupon(false)
     }
   }
 
@@ -219,7 +241,10 @@ const CustomersPage = () => {
                     >
                       View Details
                     </button>
-                    <button className="text-green-600 hover:text-green-900">
+                    <button
+                      onClick={() => setCouponModalCustomerId(customer.id)}
+                      className="text-green-600 hover:text-green-900"
+                    >
                       Apply Coupon
                     </button>
                   </td>
@@ -351,6 +376,68 @@ const CustomersPage = () => {
                 className="btn-secondary"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Apply Coupon Modal */}
+      {couponModalCustomerId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-6 border-b">
+              <h2 className="text-xl font-bold text-gray-900">Apply Coupon</h2>
+              <button
+                onClick={() => {
+                  setCouponModalCustomerId(null)
+                  setSelectedCouponId('')
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              <p className="text-sm text-gray-600 mb-4">
+                Select a coupon to apply to this customer's subscription. They will receive an email notification.
+              </p>
+
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Select Coupon
+              </label>
+              <select
+                className="select w-full"
+                value={selectedCouponId}
+                onChange={(e) => setSelectedCouponId(e.target.value)}
+              >
+                <option value="">Choose a coupon...</option>
+                {coupons.filter(c => c.isActive).map(coupon => (
+                  <option key={coupon.id} value={coupon.id}>
+                    {coupon.code} - {coupon.type === 'percent' ? `${coupon.value}% off` : `$${coupon.value} off`}
+                    {coupon.description && ` (${coupon.description})`}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="border-t p-4 bg-gray-50 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setCouponModalCustomerId(null)
+                  setSelectedCouponId('')
+                }}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleApplyCoupon}
+                disabled={!selectedCouponId || applyingCoupon}
+                className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {applyingCoupon ? 'Applying...' : 'Apply & Notify Customer'}
               </button>
             </div>
           </div>
