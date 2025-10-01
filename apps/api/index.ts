@@ -15,6 +15,7 @@ import { stripeRoutes } from './src/routes/stripe';
 import { authRoutes } from './src/routes/auth';
 import { portalRoutes } from './src/routes/portal';
 import adminRoutes from './src/routes/admin';
+import webhooksRouter from './src/routes/webhooks';
 import { logEmailConfigStatus } from './src/utils/emailValidator';
 
 const app = express();
@@ -47,7 +48,11 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Body parsing middleware
+// Webhook routes MUST come before body parsing middleware
+// Stripe requires the raw body for signature verification
+app.use('/webhooks', express.raw({ type: 'application/json' }), webhooksRouter);
+
+// Body parsing middleware for all other routes
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 

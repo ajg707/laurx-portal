@@ -16,6 +16,7 @@ const stripe_1 = require("./src/routes/stripe");
 const auth_1 = require("./src/routes/auth");
 const portal_1 = require("./src/routes/portal");
 const admin_1 = __importDefault(require("./src/routes/admin"));
+const webhooks_1 = __importDefault(require("./src/routes/webhooks"));
 const emailValidator_1 = require("./src/utils/emailValidator");
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3001;
@@ -40,6 +41,7 @@ app.use((0, cors_1.default)({
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
+app.use('/webhooks', express_1.default.raw({ type: 'application/json' }), webhooks_1.default);
 app.use(express_1.default.json({ limit: '10mb' }));
 app.use(express_1.default.urlencoded({ extended: true }));
 app.get('/health', (req, res) => {
