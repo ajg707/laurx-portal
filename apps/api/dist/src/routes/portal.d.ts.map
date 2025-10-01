@@ -1,1 +1,1 @@
-{"version":3,"file":"portal.d.ts","sourceRoot":"","sources":["../../../src/routes/portal.ts"],"names":[],"mappings":"AAIA,QAAA,MAAM,MAAM,4CAAmB,CAAC;AAqOhC,OAAO,EAAE,MAAM,IAAI,YAAY,EAAE,CAAC"}
+{"version":3,"file":"portal.d.ts","sourceRoot":"","sources":["../../../src/routes/portal.ts"],"names":[],"mappings":"AAIA,QAAA,MAAM,MAAM,4CAAmB,CAAC;AAgRhC,OAAO,EAAE,MAAM,IAAI,YAAY,EAAE,CAAC"}

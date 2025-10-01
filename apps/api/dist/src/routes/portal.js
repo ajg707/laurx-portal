@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -29,10 +62,43 @@ const authenticateToken = (req, res, next) => {
 router.get('/dashboard', authenticateToken, async (req, res) => {
     try {
         const userEmail = req.user.email;
+        const Stripe = (await Promise.resolve().then(() => __importStar(require('stripe')))).default;
+        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2023-10-16' });
+        const customers = await stripe.customers.list({
+            email: userEmail,
+            limit: 1
+        });
+        let isSubscriber = false;
+        let activeSubscriptions = 0;
+        let totalOrders = 0;
+        let nextDelivery = null;
+        let hasPayments = false;
+        if (customers.data.length > 0) {
+            const customer = customers.data[0];
+            const subscriptions = await stripe.subscriptions.list({
+                customer: customer.id,
+                status: 'active',
+                limit: 100
+            });
+            activeSubscriptions = subscriptions.data.length;
+            isSubscriber = activeSubscriptions > 0;
+            if (subscriptions.data.length > 0) {
+                const nextPeriodEnd = Math.min(...subscriptions.data.map(sub => sub.current_period_end));
+                nextDelivery = new Date(nextPeriodEnd * 1000).toISOString();
+            }
+            const invoices = await stripe.invoices.list({
+                customer: customer.id,
+                limit: 100
+            });
+            totalOrders = invoices.data.filter(inv => inv.status === 'paid').length;
+            hasPayments = totalOrders > 0;
+        }
         const dashboardData = {
             user: {
                 email: userEmail,
                 name: userEmail.split('@')[0],
+                isSubscriber,
+                hasPayments,
                 joinDate: new Date().toISOString(),
                 preferences: {
                     emailNotifications: true,
@@ -41,10 +107,10 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
                 }
             },
             stats: {
-                totalOrders: 0,
-                activeSubscriptions: 0,
+                totalOrders,
+                activeSubscriptions,
                 totalSaved: 0,
-                nextDelivery: null
+                nextDelivery
             },
             recentActivity: [],
             quickActions: [

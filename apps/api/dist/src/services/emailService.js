@@ -3,75 +3,16 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendWelcomeEmail = exports.sendVerificationEmail = void 0;
+exports.sendWelcomeEmail = exports.sendEmail = exports.sendVerificationEmail = void 0;
 const nodemailer_1 = __importDefault(require("nodemailer"));
-const mailchimp_transactional_1 = __importDefault(require("@mailchimp/mailchimp_transactional"));
-const EMAIL_PROVIDER = process.env.EMAIL_PROVIDER || 'smtp';
-console.log('Email Service Debug:');
-console.log('EMAIL_PROVIDER:', EMAIL_PROVIDER);
-console.log('MAILCHIMP_API_KEY:', process.env.MAILCHIMP_API_KEY ? 'Set' : 'Not set');
-console.log('SMTP_HOST:', process.env.SMTP_HOST);
-const createTransporter = () => {
-    return nodemailer_1.default.createTransport({
-        host: process.env.SMTP_HOST || 'smtp.gmail.com',
-        port: parseInt(process.env.SMTP_PORT || '587'),
-        secure: false,
+const sendVerificationEmail = async (email, code) => {
+    const transporter = nodemailer_1.default.createTransport({
+        service: 'gmail',
         auth: {
             user: process.env.SMTP_USER,
             pass: process.env.SMTP_PASS,
         },
     });
-};
-const mailchimpClient = process.env.MAILCHIMP_API_KEY
-    ? (0, mailchimp_transactional_1.default)(process.env.MAILCHIMP_API_KEY)
-    : null;
-console.log('Mailchimp client initialized:', mailchimpClient ? 'Yes' : 'No');
-const sendEmail = async (to, subject, html, text) => {
-    if (EMAIL_PROVIDER === 'mailchimp' && mailchimpClient) {
-        const message = {
-            html,
-            text,
-            subject,
-            from_email: process.env.FROM_EMAIL || 'noreply@mylaurelrose.com',
-            from_name: 'LAURx Portal',
-            to: [
-                {
-                    email: to,
-                    type: 'to'
-                }
-            ],
-            important: true,
-            track_opens: true,
-            track_clicks: true,
-            auto_text: true,
-            auto_html: false,
-            inline_css: true,
-            url_strip_qs: false,
-            preserve_recipients: false,
-            view_content_link: false,
-            tracking_domain: null,
-            signing_domain: null,
-            return_path_domain: null
-        };
-        const response = await mailchimpClient.messages.send({ message });
-        console.log(`Email sent via Mailchimp to ${to}:`, response);
-        return response;
-    }
-    else {
-        const transporter = createTransporter();
-        const mailOptions = {
-            from: process.env.FROM_EMAIL || 'noreply@mylaurelrose.com',
-            to,
-            subject,
-            html,
-            text
-        };
-        const result = await transporter.sendMail(mailOptions);
-        console.log(`Email sent via SMTP to ${to}`);
-        return result;
-    }
-};
-const sendVerificationEmail = async (email, code) => {
     const subject = 'Your LAURx Portal Verification Code';
     const html = `
     <!DOCTYPE html>
@@ -147,16 +88,49 @@ const sendVerificationEmail = async (email, code) => {
     
     Questions? Contact us at support@mylaurelrose.com
   `;
+    const mailOptions = {
+        from: process.env.SMTP_USER,
+        to: email,
+        subject,
+        html,
+        text
+    };
     try {
-        await sendEmail(email, subject, html, text);
-        console.log(`Verification email sent to ${email}`);
+        await transporter.sendMail(mailOptions);
+        console.log(`✅ Verification email sent to ${email}`);
     }
     catch (error) {
-        console.error('Error sending email:', error);
-        throw new Error('Failed to send verification email');
+        console.error(`❌ Failed to send email to ${email}:`, error.message);
+        throw new Error(`Email sending failed: ${error.message}`);
     }
 };
 exports.sendVerificationEmail = sendVerificationEmail;
+const sendEmail = async (options) => {
+    const transporter = nodemailer_1.default.createTransport({
+        service: 'gmail',
+        auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS,
+        },
+    });
+    const text = options.text || options.html.replace(/<[^>]*>/g, '');
+    const mailOptions = {
+        from: process.env.SMTP_USER,
+        to: options.to,
+        subject: options.subject,
+        html: options.html,
+        text
+    };
+    try {
+        await transporter.sendMail(mailOptions);
+        console.log(`✅ Email sent to ${options.to}`);
+    }
+    catch (error) {
+        console.error(`❌ Failed to send email to ${options.to}:`, error.message);
+        throw new Error(`Email sending failed: ${error.message}`);
+    }
+};
+exports.sendEmail = sendEmail;
 const sendWelcomeEmail = async (email) => {
     const subject = 'Welcome to LAURx Portal';
     const html = `
@@ -233,7 +207,7 @@ const sendWelcomeEmail = async (email) => {
     Thank you for choosing LAURx for your immune defense!
   `;
     try {
-        await sendEmail(email, subject, html, text);
+        await (0, exports.sendEmail)({ to: email, subject, html, text });
         console.log(`Welcome email sent to ${email}`);
     }
     catch (error) {
