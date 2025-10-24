@@ -552,14 +552,25 @@ router.post('/email-campaigns', authenticateAdmin, async (req, res) => {
                 .map(c => typeof c !== 'string' && !c.deleted && 'email' in c ? c.email : null)
                 .filter(Boolean);
         }
-        const emailPromises = customerEmails.map(email => (0, emailService_1.sendEmail)({
-            to: email,
-            subject,
-            html: content
-        }));
+        const campaignId = `campaign_${Date.now()}`;
+        let emailContent = content;
+        if (enableTracking !== false) {
+            const apiUrl = process.env.API_URL || 'https://laurx-api.onrender.com';
+            const trackingPixel = `<img src="${apiUrl}/api/admin/track/open/${campaignId}/{{EMAIL_HASH}}" width="1" height="1" style="display:none;" alt="" />`;
+            emailContent = content + trackingPixel;
+        }
+        const emailPromises = customerEmails.map(email => {
+            const emailHash = Buffer.from(email).toString('base64').replace(/=/g, '');
+            const personalizedContent = emailContent.replace(/\{\{EMAIL_HASH\}\}/g, emailHash);
+            return (0, emailService_1.sendEmail)({
+                to: email,
+                subject,
+                html: personalizedContent
+            });
+        });
         await Promise.all(emailPromises);
         const campaign = {
-            id: `campaign_${Date.now()}`,
+            id: campaignId,
             name,
             subject,
             content,
@@ -965,6 +976,45 @@ router.delete('/groups/:groupId/customers', authenticateAdmin, async (req, res) 
     catch (error) {
         console.error('Error removing customers from group:', error);
         res.status(500).json({ message: error instanceof Error ? error.message : 'Failed to remove customers from group' });
+    }
+});
+router.get('/track/open/:campaignId/:emailHash', async (req, res) => {
+    try {
+        const { campaignId, emailHash } = req.params;
+        if (firestore_1.db) {
+            const campaignRef = firestore_1.db.collection(firestore_1.Collections.EMAIL_CAMPAIGNS).doc(campaignId);
+            const campaignDoc = await campaignRef.get();
+            if (campaignDoc.exists) {
+                await firestore_1.db.collection('email_tracking_events').add({
+                    campaignId,
+                    emailHash,
+                    event: 'open',
+                    timestamp: Date.now(),
+                    userAgent: req.headers['user-agent'],
+                    ip: req.ip
+                });
+                const currentData = campaignDoc.data();
+                const totalRecipients = currentData?.recipients || 1;
+                const currentOpens = currentData?.opens || 0;
+                const newOpens = currentOpens + 1;
+                const openRate = Math.round((newOpens / totalRecipients) * 100 * 10) / 10;
+                await campaignRef.update({
+                    opens: newOpens,
+                    openRate: openRate
+                });
+                console.log(`📧 Email opened for campaign ${campaignId}`);
+            }
+        }
+        const transparentGif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+        res.set('Content-Type', 'image/gif');
+        res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.send(transparentGif);
+    }
+    catch (error) {
+        console.error('Error tracking email open:', error);
+        const transparentGif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+        res.set('Content-Type', 'image/gif');
+        res.send(transparentGif);
     }
 });
 exports.default = router;
