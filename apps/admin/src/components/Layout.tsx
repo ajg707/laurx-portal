@@ -10,7 +10,8 @@ import {
   LogOut,
   Menu,
   X,
-  Folder
+  Folder,
+  Shield
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -33,6 +34,7 @@ const Layout = () => {
     { name: 'Automation', href: '/automation', icon: Zap },
     { name: 'Coupons', href: '/coupons', icon: Tag },
     { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+    { name: 'Admin Users', href: '/admin-users', icon: Shield },
   ]
 
   return (

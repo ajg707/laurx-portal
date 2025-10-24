@@ -10,6 +10,7 @@ import EmailCampaignsPage from './pages/EmailCampaignsPage'
 import AutomationPage from './pages/AutomationPage'
 import CouponsPage from './pages/CouponsPage'
 import AnalyticsPage from './pages/AnalyticsPage'
+import AdminUsersPage from './pages/AdminUsersPage'
 import ProtectedRoute from './components/ProtectedRoute'
 
 function App() {
@@ -27,6 +28,7 @@ function App() {
             <Route path="automation" element={<AutomationPage />} />
             <Route path="coupons" element={<CouponsPage />} />
             <Route path="analytics" element={<AnalyticsPage />} />
+            <Route path="admin-users" element={<AdminUsersPage />} />
           </Route>
         </Routes>
       </AdminProvider>

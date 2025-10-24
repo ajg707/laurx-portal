@@ -1,5 +1,6 @@
 import express from 'express'
 import jwt from 'jsonwebtoken'
+import bcrypt from 'bcrypt'
 import { sendEmail } from '../services/emailService'
 import Stripe from 'stripe'
 import {
@@ -597,6 +598,28 @@ router.get('/analytics', authenticateAdmin, async (req, res) => {
       .slice(0, 5)
       .map(({ created, ...rest }) => rest) // Remove the created field used for sorting
 
+    // Get email campaign stats from Firestore
+    let emailStats = {
+      campaignsSent: 0,
+      averageOpenRate: 0,
+      averageClickRate: 0
+    }
+
+    if (db) {
+      const campaignsSnapshot = await db.collection(Collections.EMAIL_CAMPAIGNS).get()
+      const campaigns = campaignsSnapshot.docs.map(doc => doc.data())
+
+      emailStats.campaignsSent = campaigns.length
+
+      if (campaigns.length > 0) {
+        const totalOpenRate = campaigns.reduce((sum, c) => sum + (c.openRate || 0), 0)
+        const totalClickRate = campaigns.reduce((sum, c) => sum + (c.clickRate || 0), 0)
+
+        emailStats.averageOpenRate = Math.round((totalOpenRate / campaigns.length) * 10) / 10
+        emailStats.averageClickRate = Math.round((totalClickRate / campaigns.length) * 10) / 10
+      }
+    }
+
     const analytics = {
       totalCustomers,
       activeSubscriptions,
@@ -604,11 +627,7 @@ router.get('/analytics', authenticateAdmin, async (req, res) => {
       allTimeRevenue,
       last30DaysRevenue,
       churnRate,
-      emailStats: {
-        campaignsSent: 0,
-        averageOpenRate: 0,
-        averageClickRate: 0
-      },
+      emailStats,
       recentActivity,
       debug: {
         totalInvoices: invoices.data.length,
@@ -743,7 +762,6 @@ router.post('/automation-rules', authenticateAdmin, async (req, res) => {
   try {
     const { name, trigger, triggerDays, emailTemplate } = req.body
 
-    // In production, save to database
     const rule = {
       id: `rule_${Date.now()}`,
       name,
@@ -751,7 +769,13 @@ router.post('/automation-rules', authenticateAdmin, async (req, res) => {
       triggerDays,
       emailTemplate,
       isActive: true,
-      createdAt: new Date().toISOString()
+      createdAt: Date.now()
+    }
+
+    // Save to Firestore
+    if (db) {
+      await db.collection(Collections.AUTOMATION_RULES).doc(rule.id).set(rule)
+      console.log(`✅ Saved automation rule ${rule.id} to Firestore`)
     }
 
     res.json({ rule })
@@ -928,22 +952,89 @@ router.get('/email-campaigns', authenticateAdmin, async (req, res) => {
 // Get automation rules (mock data for now)
 router.get('/automation-rules', authenticateAdmin, async (req, res) => {
   try {
-    const rules = [
-      {
-        id: 'rule_1',
-        name: 'Subscription Ending Reminder',
-        trigger: 'subscription_ending',
-        triggerDays: 3,
-        emailTemplate: 'Your subscription is ending soon. Renew now!',
-        isActive: true,
-        createdAt: new Date().toISOString()
-      }
-    ]
+    let rules: any[] = []
+
+    // Fetch from Firestore if available
+    if (db) {
+      const snapshot = await db.collection(Collections.AUTOMATION_RULES)
+        .orderBy('createdAt', 'desc')
+        .get()
+      rules = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }))
+      console.log(`✅ Retrieved ${rules.length} automation rules from Firestore`)
+    } else {
+      // Fallback to demo data
+      rules = [
+        {
+          id: 'rule_demo',
+          name: 'Subscription Ending Reminder',
+          trigger: 'subscription_ending',
+          triggerDays: 3,
+          emailTemplate: 'Your subscription is ending soon. Renew now!',
+          isActive: true,
+          createdAt: Date.now()
+        }
+      ]
+    }
 
     res.json({ rules })
   } catch (error) {
     console.error('Error fetching automation rules:', error)
     res.status(500).json({ message: 'Failed to fetch automation rules' })
+  }
+})
+
+// Update automation rule
+router.put('/automation-rules/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const { id } = req.params
+    const { name, trigger, triggerDays, emailTemplate } = req.body
+
+    if (db) {
+      const ruleRef = db.collection(Collections.AUTOMATION_RULES).doc(id)
+      const ruleDoc = await ruleRef.get()
+
+      if (!ruleDoc.exists) {
+        return res.status(404).json({ message: 'Automation rule not found' })
+      }
+
+      await ruleRef.update({
+        name,
+        trigger,
+        triggerDays,
+        emailTemplate,
+        updatedAt: Date.now()
+      })
+
+      const updated = await ruleRef.get()
+      console.log(`✅ Updated automation rule ${id}`)
+      res.json({ rule: { id: updated.id, ...updated.data() } })
+    } else {
+      res.status(500).json({ message: 'Database not available' })
+    }
+  } catch (error) {
+    console.error('Error updating automation rule:', error)
+    res.status(500).json({ message: 'Failed to update automation rule' })
+  }
+})
+
+// Delete automation rule
+router.delete('/automation-rules/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const { id } = req.params
+
+    if (db) {
+      await db.collection(Collections.AUTOMATION_RULES).doc(id).delete()
+      console.log(`✅ Deleted automation rule ${id}`)
+      res.json({ message: 'Automation rule deleted successfully' })
+    } else {
+      res.status(500).json({ message: 'Database not available' })
+    }
+  } catch (error) {
+    console.error('Error deleting automation rule:', error)
+    res.status(500).json({ message: 'Failed to delete automation rule' })
   }
 })
 
@@ -1247,6 +1338,181 @@ router.get('/track/open/:campaignId/:emailHash', async (req, res) => {
     )
     res.set('Content-Type', 'image/gif')
     res.send(transparentGif)
+  }
+})
+
+// Admin Users Management
+
+// Migration endpoint - populate initial admin users (one-time use)
+router.post('/admin-users/migrate', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(503).json({ message: 'Database not available' })
+    }
+
+    const initialAdmins = [
+      {
+        email: 'ajgregware4290@gmail.com',
+        name: 'Admin User',
+        password: 'changeme123' // Default password - should be changed after first login
+      },
+      {
+        email: 'support@mylaurelrose.com',
+        name: 'Support Admin',
+        password: 'changeme123'
+      },
+      {
+        email: 'mglynn@mylaurelrose.com',
+        name: 'Admin User',
+        password: 'changeme123'
+      }
+    ]
+
+    const results = []
+    for (const admin of initialAdmins) {
+      // Check if already exists
+      const existing = await db.collection(Collections.ADMIN_USERS)
+        .where('email', '==', admin.email)
+        .get()
+
+      if (existing.empty) {
+        const hashedPassword = await bcrypt.hash(admin.password, 10)
+        const adminUser = {
+          email: admin.email,
+          name: admin.name,
+          password: hashedPassword,
+          createdAt: Date.now(),
+          lastLogin: null
+        }
+        await db.collection(Collections.ADMIN_USERS).add(adminUser)
+        results.push({ email: admin.email, status: 'created' })
+      } else {
+        results.push({ email: admin.email, status: 'already exists' })
+      }
+    }
+
+    res.json({ message: 'Migration complete', results })
+  } catch (error) {
+    console.error('Error migrating admin users:', error)
+    res.status(500).json({ message: 'Failed to migrate admin users' })
+  }
+})
+
+// GET /api/admin/admin-users - Get all admin users
+router.get('/admin-users', authenticateAdmin, async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(503).json({ message: 'Database not available' })
+    }
+
+    const snapshot = await db.collection(Collections.ADMIN_USERS)
+      .orderBy('createdAt', 'desc')
+      .get()
+
+    const adminUsers = snapshot.docs.map(doc => {
+      const data = doc.data()
+      // Don't return password hash
+      const { password, ...userWithoutPassword } = data
+      return { id: doc.id, ...userWithoutPassword }
+    })
+
+    res.json({ adminUsers })
+  } catch (error) {
+    console.error('Error fetching admin users:', error)
+    res.status(500).json({ message: 'Failed to fetch admin users' })
+  }
+})
+
+// POST /api/admin/admin-users - Create new admin user
+router.post('/admin-users', authenticateAdmin, async (req, res) => {
+  try {
+    const { email, name, password } = req.body
+
+    if (!email || !name || !password) {
+      return res.status(400).json({ message: 'Email, name, and password are required' })
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({ message: 'Password must be at least 8 characters long' })
+    }
+
+    if (!db) {
+      return res.status(503).json({ message: 'Database not available' })
+    }
+
+    // Check if email already exists
+    const existingUser = await db.collection(Collections.ADMIN_USERS)
+      .where('email', '==', email)
+      .get()
+
+    if (!existingUser.empty) {
+      return res.status(409).json({ message: 'Admin user with this email already exists' })
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10)
+
+    const adminUser = {
+      email,
+      name,
+      password: hashedPassword,
+      createdAt: Date.now(),
+      lastLogin: null
+    }
+
+    const docRef = await db.collection(Collections.ADMIN_USERS).add(adminUser)
+
+    // Return user without password
+    const { password: _, ...userWithoutPassword } = adminUser
+    res.json({
+      adminUser: {
+        id: docRef.id,
+        ...userWithoutPassword
+      }
+    })
+  } catch (error) {
+    console.error('Error creating admin user:', error)
+    res.status(500).json({ message: 'Failed to create admin user' })
+  }
+})
+
+// DELETE /api/admin/admin-users/:id - Delete admin user
+router.delete('/admin-users/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const { id } = req.params
+
+    if (!db) {
+      return res.status(503).json({ message: 'Database not available' })
+    }
+
+    // Prevent deleting the last admin
+    const allAdmins = await db.collection(Collections.ADMIN_USERS).get()
+    if (allAdmins.size <= 1) {
+      return res.status(400).json({ message: 'Cannot delete the last admin user' })
+    }
+
+    // Prevent self-deletion
+    const userDoc = await db.collection(Collections.ADMIN_USERS).doc(id).get()
+    if (userDoc.exists) {
+      const userData = userDoc.data()
+      const token = req.headers.authorization?.replace('Bearer ', '')
+      if (token) {
+        try {
+          const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret') as any
+          if (decoded.email === userData?.email) {
+            return res.status(400).json({ message: 'Cannot delete your own admin account' })
+          }
+        } catch (err) {
+          // Token verification failed, continue with deletion
+        }
+      }
+    }
+
+    await db.collection(Collections.ADMIN_USERS).doc(id).delete()
+    res.json({ message: 'Admin user deleted successfully' })
+  } catch (error) {
+    console.error('Error deleting admin user:', error)
+    res.status(500).json({ message: 'Failed to delete admin user' })
   }
 })
 
