@@ -83,8 +83,8 @@ const Layout = ({ children }: LayoutProps) => {
                   </span>
                 </div>
               </div>
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-700">{user?.email}</p>
+              <div className="ml-3 flex-1 min-w-0">
+                <p className="text-xs font-medium text-gray-700 truncate" title={user?.email || ''}>{user?.email}</p>
               </div>
             </div>
             <button
@@ -134,8 +134,8 @@ const Layout = ({ children }: LayoutProps) => {
                     </span>
                   </div>
                 </div>
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-gray-700">{user?.email}</p>
+                <div className="ml-3 flex-1 min-w-0">
+                  <p className="text-xs font-medium text-gray-700 truncate" title={user?.email || ''}>{user?.email}</p>
                 </div>
               </div>
               <button

@@ -58,7 +58,7 @@ interface EmailCampaign {
 interface AutomationRule {
   id: string
   name: string
-  trigger: 'subscription_ending' | 'subscription_cancelled' | 'payment_failed' | 'new_customer'
+  trigger: 'subscription_ending' | 'subscription_cancelled' | 'payment_failed' | 'new_customer' | 'subscription_renewed' | 'payment_success' | 'dormant_customer' | 'high_value_customer' | 'abandoned_cart' | 'first_purchase'
   triggerDays?: number
   emailTemplate: string
   isActive: boolean
@@ -265,12 +265,30 @@ export const AdminProvider: React.FC<AdminProviderProps> = ({ children }) => {
     try {
       setLoading(true)
       setError(null)
+      console.log('Calling API:', '/api/admin/email-campaigns', campaign)
       const data = await apiCall('/api/admin/email-campaigns', {
         method: 'POST',
         body: JSON.stringify(campaign),
       })
-      setEmailCampaigns(prev => [...prev, data.campaign])
+      console.log('API Response:', data)
+      if (data.campaign) {
+        setEmailCampaigns(prev => [...prev, data.campaign])
+      } else {
+        console.warn('API response missing campaign data:', data)
+        // Still add it if we have an id
+        if (data.id || data.message) {
+          const newCampaign = {
+            id: data.id || Date.now().toString(),
+            ...campaign,
+            status: 'sent',
+            sentAt: new Date().toISOString(),
+            recipients: 0,
+          } as EmailCampaign
+          setEmailCampaigns(prev => [...prev, newCampaign])
+        }
+      }
     } catch (err) {
+      console.error('API Error:', err)
       setError(err instanceof Error ? err.message : 'Failed to send email campaign')
       throw err
     } finally {

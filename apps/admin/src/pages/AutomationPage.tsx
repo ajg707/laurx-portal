@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAdmin } from '../contexts/AdminContext'
-import { Zap, Clock, Mail, Plus } from 'lucide-react'
+import { Zap, Clock, Mail, Plus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const AutomationPage = () => {
@@ -8,7 +8,7 @@ const AutomationPage = () => {
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
-    trigger: 'subscription_ending' as 'subscription_ending' | 'subscription_cancelled' | 'payment_failed' | 'new_customer',
+    trigger: 'subscription_ending' as 'subscription_ending' | 'subscription_cancelled' | 'payment_failed' | 'new_customer' | 'subscription_renewed' | 'payment_success' | 'dormant_customer' | 'high_value_customer' | 'abandoned_cart' | 'first_purchase',
     triggerDays: 3,
     emailTemplate: ''
   })
@@ -40,7 +40,13 @@ const AutomationPage = () => {
       subscription_ending: 'bg-yellow-100 text-yellow-800',
       subscription_cancelled: 'bg-red-100 text-red-800',
       payment_failed: 'bg-orange-100 text-orange-800',
-      new_customer: 'bg-green-100 text-green-800'
+      new_customer: 'bg-green-100 text-green-800',
+      subscription_renewed: 'bg-blue-100 text-blue-800',
+      payment_success: 'bg-emerald-100 text-emerald-800',
+      dormant_customer: 'bg-gray-100 text-gray-800',
+      high_value_customer: 'bg-purple-100 text-purple-800',
+      abandoned_cart: 'bg-amber-100 text-amber-800',
+      first_purchase: 'bg-teal-100 text-teal-800'
     }
     return colors[trigger as keyof typeof colors] || 'bg-gray-100 text-gray-800'
   }
@@ -50,9 +56,35 @@ const AutomationPage = () => {
       subscription_ending: 'Subscription Ending',
       subscription_cancelled: 'Subscription Cancelled',
       payment_failed: 'Payment Failed',
-      new_customer: 'New Customer'
+      new_customer: 'New Customer',
+      subscription_renewed: 'Subscription Renewed',
+      payment_success: 'Payment Success',
+      dormant_customer: 'Dormant Customer',
+      high_value_customer: 'High Value Customer',
+      abandoned_cart: 'Abandoned Cart',
+      first_purchase: 'First Purchase'
     }
     return labels[trigger as keyof typeof labels] || trigger
+  }
+
+  const getTriggerDescription = (trigger: string) => {
+    const descriptions = {
+      subscription_ending: 'Send reminder before subscription renews',
+      subscription_cancelled: 'Reach out when customer cancels',
+      payment_failed: 'Alert when payment fails',
+      new_customer: 'Welcome new customers',
+      subscription_renewed: 'Thank customers for renewing',
+      payment_success: 'Confirm successful payment',
+      dormant_customer: 'Re-engage inactive customers',
+      high_value_customer: 'Reward top spenders',
+      abandoned_cart: 'Remind about incomplete checkout',
+      first_purchase: 'Thank customers for first order'
+    }
+    return descriptions[trigger as keyof typeof descriptions] || ''
+  }
+
+  const requiresDays = (trigger: string) => {
+    return ['subscription_ending', 'dormant_customer'].includes(trigger)
   }
 
   if (loading) {
@@ -74,7 +106,7 @@ const AutomationPage = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Email Automation</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Set up automated email triggers based on customer actions
+            Set up automated email triggers based on customer actions and behaviors
           </p>
         </div>
         <button
@@ -109,7 +141,7 @@ const AutomationPage = () => {
                     {rule.triggerDays && (
                       <span className="flex items-center gap-1">
                         <Clock className="h-4 w-4" />
-                        {rule.triggerDays} days before
+                        {rule.triggerDays} days {rule.trigger === 'dormant_customer' ? 'of inactivity' : 'before'}
                       </span>
                     )}
                     <span className="flex items-center gap-1">
@@ -135,8 +167,13 @@ const AutomationPage = () => {
       {/* Create Rule Modal */}
       {showCreateForm && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-2xl">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Create Automation Rule</h3>
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-medium text-gray-900">Create Automation Rule</h3>
+              <button onClick={() => setShowCreateForm(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700">Rule Name</label>
@@ -146,6 +183,7 @@ const AutomationPage = () => {
                   className="input mt-1"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="e.g., Welcome New Customers"
                 />
               </div>
               <div>
@@ -155,35 +193,62 @@ const AutomationPage = () => {
                   value={formData.trigger}
                   onChange={(e) => setFormData({ ...formData, trigger: e.target.value as any })}
                 >
-                  <option value="subscription_ending">Subscription Ending</option>
-                  <option value="subscription_cancelled">Subscription Cancelled</option>
-                  <option value="payment_failed">Payment Failed</option>
-                  <option value="new_customer">New Customer</option>
+                  <optgroup label="Subscription Events">
+                    <option value="subscription_ending">Subscription Ending</option>
+                    <option value="subscription_renewed">Subscription Renewed</option>
+                    <option value="subscription_cancelled">Subscription Cancelled</option>
+                  </optgroup>
+                  <optgroup label="Payment Events">
+                    <option value="payment_success">Payment Success</option>
+                    <option value="payment_failed">Payment Failed</option>
+                  </optgroup>
+                  <optgroup label="Customer Events">
+                    <option value="new_customer">New Customer</option>
+                    <option value="first_purchase">First Purchase</option>
+                    <option value="dormant_customer">Dormant Customer</option>
+                    <option value="high_value_customer">High Value Customer</option>
+                  </optgroup>
+                  <optgroup label="Cart Events">
+                    <option value="abandoned_cart">Abandoned Cart</option>
+                  </optgroup>
                 </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  {getTriggerDescription(formData.trigger)}
+                </p>
               </div>
-              {formData.trigger === 'subscription_ending' && (
+              {requiresDays(formData.trigger) && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Days Before Renewal</label>
+                  <label className="block text-sm font-medium text-gray-700">
+                    {formData.trigger === 'subscription_ending' ? 'Days Before Renewal' : 'Days of Inactivity'}
+                  </label>
                   <input
                     type="number"
                     min="1"
-                    max="30"
+                    max="90"
                     className="input mt-1"
                     value={formData.triggerDays}
                     onChange={(e) => setFormData({ ...formData, triggerDays: parseInt(e.target.value) })}
                   />
+                  <p className="mt-1 text-xs text-gray-500">
+                    {formData.trigger === 'subscription_ending'
+                      ? 'Send email this many days before renewal date'
+                      : 'Trigger after this many days of customer inactivity'}
+                  </p>
                 </div>
               )}
               <div>
                 <label className="block text-sm font-medium text-gray-700">Email Template</label>
                 <textarea
                   required
-                  rows={6}
+                  rows={8}
                   className="textarea mt-1"
                   value={formData.emailTemplate}
                   onChange={(e) => setFormData({ ...formData, emailTemplate: e.target.value })}
-                  placeholder="Enter your email template here..."
+                  placeholder="Enter your email template here. You can use variables like {{customer_name}}, {{subscription_name}}, etc."
                 />
+                <p className="mt-1 text-xs text-gray-500">
+                  Tip: Use template variables for personalization
+                </p>
               </div>
               <div className="flex justify-end gap-3">
                 <button

@@ -41,6 +41,7 @@ const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const emailService_1 = require("../services/emailService");
 const stripe_1 = __importDefault(require("stripe"));
 const emailValidator_1 = require("../utils/emailValidator");
+const firestore_1 = require("../services/firestore");
 const router = express_1.default.Router();
 if (!process.env.STRIPE_SECRET_KEY) {
     console.error('ERROR: STRIPE_SECRET_KEY is not set in environment variables!');
@@ -512,7 +513,7 @@ router.get('/analytics', authenticateAdmin, async (req, res) => {
 });
 router.post('/email-campaigns', authenticateAdmin, async (req, res) => {
     try {
-        const { name, subject, content, type, recipients } = req.body;
+        const { name, subject, content, type, recipients, selectedGroupIds, selectedCustomerIds, enableTracking } = req.body;
         let customerEmails = [];
         if (recipients === 'all') {
             const customers = await stripe.customers.list({ limit: 100 });
@@ -525,6 +526,28 @@ router.post('/email-campaigns', authenticateAdmin, async (req, res) => {
             });
             const customerIds = subscriptions.data.map(sub => sub.customer);
             const customers = await Promise.all(customerIds.map(id => stripe.customers.retrieve(id)));
+            customerEmails = customers
+                .map(c => typeof c !== 'string' && !c.deleted && 'email' in c ? c.email : null)
+                .filter(Boolean);
+        }
+        else if (recipients === 'groups' && selectedGroupIds?.length > 0) {
+            const groupCustomerIds = new Set();
+            for (const groupId of selectedGroupIds) {
+                const groupDoc = await firestore_1.db.collection(firestore_1.Collections.CUSTOMER_GROUPS).doc(groupId).get();
+                if (groupDoc.exists) {
+                    const groupData = groupDoc.data();
+                    if (groupData?.customerIds) {
+                        groupData.customerIds.forEach((id) => groupCustomerIds.add(id));
+                    }
+                }
+            }
+            const customers = await Promise.all(Array.from(groupCustomerIds).map(id => stripe.customers.retrieve(id)));
+            customerEmails = customers
+                .map(c => typeof c !== 'string' && !c.deleted && 'email' in c ? c.email : null)
+                .filter(Boolean);
+        }
+        else if (recipients === 'specific_customers' && selectedCustomerIds?.length > 0) {
+            const customers = await Promise.all(selectedCustomerIds.map((id) => stripe.customers.retrieve(id)));
             customerEmails = customers
                 .map(c => typeof c !== 'string' && !c.deleted && 'email' in c ? c.email : null)
                 .filter(Boolean);
@@ -544,9 +567,18 @@ router.post('/email-campaigns', authenticateAdmin, async (req, res) => {
             status: 'sent',
             sentAt: new Date().toISOString(),
             recipients: customerEmails.length,
+            recipientType: recipients,
+            selectedGroupIds: selectedGroupIds || [],
+            selectedCustomerIds: selectedCustomerIds || [],
+            enableTracking: enableTracking !== false,
             openRate: 0,
-            clickRate: 0
+            clickRate: 0,
+            createdAt: Date.now()
         };
+        if (firestore_1.db) {
+            await firestore_1.db.collection(firestore_1.Collections.EMAIL_CAMPAIGNS).doc(campaign.id).set(campaign);
+            console.log(`✅ Saved campaign ${campaign.id} to Firestore`);
+        }
         res.json({ campaign });
     }
     catch (error) {
@@ -674,20 +706,34 @@ router.post('/customers/:customerId/apply-coupon', authenticateAdmin, async (req
 });
 router.get('/email-campaigns', authenticateAdmin, async (req, res) => {
     try {
-        const campaigns = [
-            {
-                id: 'campaign_1',
-                name: 'Welcome Series',
-                subject: 'Welcome to LAURx!',
-                content: '<h1>Welcome!</h1><p>Thank you for subscribing.</p>',
-                type: 'thank_you',
-                status: 'sent',
-                sentAt: new Date().toISOString(),
-                recipients: 25,
-                openRate: 28.5,
-                clickRate: 4.2
-            }
-        ];
+        let campaigns = [];
+        if (firestore_1.db) {
+            const snapshot = await firestore_1.db.collection(firestore_1.Collections.EMAIL_CAMPAIGNS)
+                .orderBy('createdAt', 'desc')
+                .get();
+            campaigns = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+            console.log(`✅ Retrieved ${campaigns.length} campaigns from Firestore`);
+        }
+        else {
+            campaigns = [
+                {
+                    id: 'campaign_demo',
+                    name: 'Welcome Series',
+                    subject: 'Welcome to LAURx!',
+                    content: '<h1>Welcome!</h1><p>Thank you for subscribing.</p>',
+                    type: 'thank_you',
+                    status: 'sent',
+                    sentAt: new Date().toISOString(),
+                    recipients: 25,
+                    openRate: 28.5,
+                    clickRate: 4.2,
+                    createdAt: Date.now()
+                }
+            ];
+        }
         res.json({ campaigns });
     }
     catch (error) {

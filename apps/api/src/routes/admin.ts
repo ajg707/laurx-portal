@@ -2,12 +2,13 @@ import express from 'express'
 import jwt from 'jsonwebtoken'
 import { sendEmail } from '../services/emailService'
 import Stripe from 'stripe'
-import { 
-  validateEmailConfig, 
-  testSMTPConnection, 
-  sendTestEmail, 
-  getEmailConfigStatus 
+import {
+  validateEmailConfig,
+  testSMTPConnection,
+  sendTestEmail,
+  getEmailConfigStatus
 } from '../utils/emailValidator'
+import { db, Collections } from '../services/firestore'
 
 const router = express.Router()
 
@@ -630,18 +631,18 @@ router.get('/analytics', authenticateAdmin, async (req, res) => {
 // Send email campaign
 router.post('/email-campaigns', authenticateAdmin, async (req, res) => {
   try {
-    const { name, subject, content, type, recipients } = req.body
+    const { name, subject, content, type, recipients, selectedGroupIds, selectedCustomerIds, enableTracking } = req.body
 
     // Get customer emails based on criteria
     let customerEmails: string[] = []
-    
+
     if (recipients === 'all') {
       const customers = await stripe.customers.list({ limit: 100 })
       customerEmails = customers.data.map(c => c.email).filter(Boolean) as string[]
     } else if (recipients === 'active_subscribers') {
-      const subscriptions = await stripe.subscriptions.list({ 
+      const subscriptions = await stripe.subscriptions.list({
         status: 'active',
-        limit: 100 
+        limit: 100
       })
       const customerIds = subscriptions.data.map(sub => sub.customer as string)
       const customers = await Promise.all(
@@ -650,10 +651,36 @@ router.post('/email-campaigns', authenticateAdmin, async (req, res) => {
       customerEmails = customers
         .map(c => typeof c !== 'string' && !c.deleted && 'email' in c ? c.email : null)
         .filter(Boolean) as string[]
+    } else if (recipients === 'groups' && selectedGroupIds?.length > 0) {
+      // Get customer emails from selected groups
+      const groupCustomerIds = new Set<string>()
+      for (const groupId of selectedGroupIds) {
+        const groupDoc = await db.collection(Collections.CUSTOMER_GROUPS).doc(groupId).get()
+        if (groupDoc.exists) {
+          const groupData = groupDoc.data()
+          if (groupData?.customerIds) {
+            groupData.customerIds.forEach((id: string) => groupCustomerIds.add(id))
+          }
+        }
+      }
+      const customers = await Promise.all(
+        Array.from(groupCustomerIds).map(id => stripe.customers.retrieve(id))
+      )
+      customerEmails = customers
+        .map(c => typeof c !== 'string' && !c.deleted && 'email' in c ? c.email : null)
+        .filter(Boolean) as string[]
+    } else if (recipients === 'specific_customers' && selectedCustomerIds?.length > 0) {
+      // Get specific customer emails
+      const customers = await Promise.all(
+        selectedCustomerIds.map((id: string) => stripe.customers.retrieve(id))
+      )
+      customerEmails = customers
+        .map(c => typeof c !== 'string' && !c.deleted && 'email' in c ? c.email : null)
+        .filter(Boolean) as string[]
     }
 
     // Send emails
-    const emailPromises = customerEmails.map(email => 
+    const emailPromises = customerEmails.map(email =>
       sendEmail({
         to: email,
         subject,
@@ -672,8 +699,19 @@ router.post('/email-campaigns', authenticateAdmin, async (req, res) => {
       status: 'sent',
       sentAt: new Date().toISOString(),
       recipients: customerEmails.length,
+      recipientType: recipients,
+      selectedGroupIds: selectedGroupIds || [],
+      selectedCustomerIds: selectedCustomerIds || [],
+      enableTracking: enableTracking !== false,
       openRate: 0, // Would be tracked with email service
-      clickRate: 0
+      clickRate: 0,
+      createdAt: Date.now()
+    }
+
+    // Save campaign to Firestore
+    if (db) {
+      await db.collection(Collections.EMAIL_CAMPAIGNS).doc(campaign.id).set(campaign)
+      console.log(`✅ Saved campaign ${campaign.id} to Firestore`)
     }
 
     res.json({ campaign })
@@ -832,20 +870,36 @@ router.post('/customers/:customerId/apply-coupon', authenticateAdmin, async (req
 // Get email campaigns (mock data for now)
 router.get('/email-campaigns', authenticateAdmin, async (req, res) => {
   try {
-    const campaigns = [
-      {
-        id: 'campaign_1',
-        name: 'Welcome Series',
-        subject: 'Welcome to LAURx!',
-        content: '<h1>Welcome!</h1><p>Thank you for subscribing.</p>',
-        type: 'thank_you',
-        status: 'sent',
-        sentAt: new Date().toISOString(),
-        recipients: 25,
-        openRate: 28.5,
-        clickRate: 4.2
-      }
-    ]
+    let campaigns: any[] = []
+
+    // Fetch from Firestore if available
+    if (db) {
+      const snapshot = await db.collection(Collections.EMAIL_CAMPAIGNS)
+        .orderBy('createdAt', 'desc')
+        .get()
+      campaigns = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }))
+      console.log(`✅ Retrieved ${campaigns.length} campaigns from Firestore`)
+    } else {
+      // Fallback to demo data if Firestore not available
+      campaigns = [
+        {
+          id: 'campaign_demo',
+          name: 'Welcome Series',
+          subject: 'Welcome to LAURx!',
+          content: '<h1>Welcome!</h1><p>Thank you for subscribing.</p>',
+          type: 'thank_you',
+          status: 'sent',
+          sentAt: new Date().toISOString(),
+          recipients: 25,
+          openRate: 28.5,
+          clickRate: 4.2,
+          createdAt: Date.now()
+        }
+      ]
+    }
 
     res.json({ campaigns })
   } catch (error) {

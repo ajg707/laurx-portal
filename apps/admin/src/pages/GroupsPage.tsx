@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Users, Plus, Trash2, X, Search } from 'lucide-react'
+import { Users, Plus, Trash2, X, Search, Edit } from 'lucide-react'
 
 interface CustomerGroup {
   id: string
@@ -37,6 +37,8 @@ const GroupsPage = () => {
   const [groups, setGroups] = useState<CustomerGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editingGroup, setEditingGroup] = useState<CustomerGroup | null>(null)
   const [groupName, setGroupName] = useState('')
   const [groupDescription, setGroupDescription] = useState('')
   const [groupType, setGroupType] = useState<'static' | 'dynamic'>('static')
@@ -147,6 +149,78 @@ const GroupsPage = () => {
       }
     } catch (error) {
       alert('Failed to create group')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleEditGroup = (group: CustomerGroup) => {
+    setEditingGroup(group)
+    setGroupName(group.name)
+    setGroupDescription(group.description)
+    setGroupType(group.type)
+    if (group.type === 'static' && group.customerIds) {
+      setSelectedCustomerIds(group.customerIds)
+    } else if (group.type === 'dynamic' && group.criteria) {
+      setCriteria(group.criteria)
+    }
+    setShowEditModal(true)
+  }
+
+  const handleUpdateGroup = async () => {
+    if (!groupName.trim() || !editingGroup) {
+      alert('Please enter a group name')
+      return
+    }
+
+    if (groupType === 'static' && selectedCustomerIds.length === 0) {
+      alert('Please select at least one customer for static group')
+      return
+    }
+
+    if (groupType === 'dynamic' && Object.keys(criteria).length === 0) {
+      alert('Please set at least one criteria for dynamic group')
+      return
+    }
+
+    setSaving(true)
+    try {
+      const payload: any = {
+        name: groupName,
+        description: groupDescription,
+        type: groupType
+      }
+
+      if (groupType === 'static') {
+        payload.customerIds = selectedCustomerIds
+      } else {
+        payload.criteria = criteria
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/admin/groups/${editingGroup.id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('admin_token')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      })
+
+      if (response.ok) {
+        setShowEditModal(false)
+        setEditingGroup(null)
+        setGroupName('')
+        setGroupDescription('')
+        setGroupType('static')
+        setSelectedCustomerIds([])
+        setCriteria({})
+        await fetchGroups()
+      } else {
+        const error = await response.json()
+        alert(`Failed to update group: ${error.message || error.error}`)
+      }
+    } catch (error) {
+      alert('Failed to update group')
     } finally {
       setSaving(false)
     }
@@ -266,12 +340,22 @@ const GroupsPage = () => {
                       </div>
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleDeleteGroup(group.id)}
-                    className="text-red-600 hover:text-red-800 ml-2"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleEditGroup(group)}
+                      className="text-blue-600 hover:text-blue-800"
+                      title="Edit group"
+                    >
+                      <Edit className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteGroup(group.id)}
+                      className="text-red-600 hover:text-red-800"
+                      title="Delete group"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
                 <div className="mt-4 pt-4 border-t border-gray-200">
                   <p className="text-xs text-gray-500">
@@ -509,6 +593,133 @@ const GroupsPage = () => {
                 className="btn-primary"
               >
                 {saving ? 'Creating...' : 'Create Group'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Group Modal */}
+      {showEditModal && editingGroup && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full my-8">
+            <div className="flex items-center justify-between p-6 border-b sticky top-0 bg-white rounded-t-lg z-10">
+              <h2 className="text-xl font-bold text-gray-900">Edit Customer Group</h2>
+              <button
+                onClick={() => {
+                  setShowEditModal(false)
+                  setEditingGroup(null)
+                  setGroupName('')
+                  setGroupDescription('')
+                  setGroupType('static')
+                  setSelectedCustomerIds([])
+                  setCriteria({})
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Group Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={groupName}
+                  onChange={(e) => setGroupName(e.target.value)}
+                  className="input w-full"
+                  placeholder="e.g. High Value Customers"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Description
+                </label>
+                <textarea
+                  value={groupDescription}
+                  onChange={(e) => setGroupDescription(e.target.value)}
+                  className="textarea w-full"
+                  rows={3}
+                  placeholder="Describe this customer group..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Group Type
+                </label>
+                <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg border">
+                  {groupType === 'static' ? '📋 Static List' : '🔄 Dynamic Criteria'} - Type cannot be changed after creation
+                </div>
+              </div>
+
+              {groupType === 'static' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Customers ({selectedCustomerIds.length} selected)
+                  </label>
+                  <div className="mb-2">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={customerSearch}
+                        onChange={(e) => setCustomerSearch(e.target.value)}
+                        className="input pl-10 w-full"
+                        placeholder="Search by email or name..."
+                      />
+                    </div>
+                  </div>
+                  <div className="border rounded-lg max-h-64 overflow-y-auto">
+                    {filteredCustomers.map((customer) => (
+                      <label
+                        key={customer.id}
+                        className="flex items-center gap-3 p-3 hover:bg-gray-50 cursor-pointer border-b last:border-b-0"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedCustomerIds.includes(customer.id)}
+                          onChange={() => toggleCustomerSelection(customer.id)}
+                          className="rounded"
+                        />
+                        <div className="flex-1">
+                          <div className="font-medium text-sm">{customer.email}</div>
+                          {customer.name && (
+                            <div className="text-xs text-gray-500">{customer.name}</div>
+                          )}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 p-6 border-t sticky bottom-0 bg-white">
+              <button
+                onClick={() => {
+                  setShowEditModal(false)
+                  setEditingGroup(null)
+                  setGroupName('')
+                  setGroupDescription('')
+                  setGroupType('static')
+                  setSelectedCustomerIds([])
+                  setCriteria({})
+                }}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpdateGroup}
+                disabled={saving || !groupName.trim()}
+                className="btn-primary"
+              >
+                {saving ? 'Updating...' : 'Update Group'}
               </button>
             </div>
           </div>
